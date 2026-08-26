@@ -30,3 +30,7 @@ keystore.properties
 .DS_Store
 Thumbs.db
 Desktop.ini
+assets/
+app/build
+app/release
+docs_wz/
