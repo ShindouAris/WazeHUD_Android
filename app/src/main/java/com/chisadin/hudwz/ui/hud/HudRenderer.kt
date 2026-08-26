@@ -1,0 +1,875 @@
+package com.chisadin.hudwz.ui.hud
+
+import android.provider.Settings
+import android.graphics.BitmapFactory
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.BluetoothConnected
+import androidx.compose.material.icons.rounded.BluetoothDisabled
+import androidx.compose.material.icons.rounded.GpsFixed
+import androidx.compose.material.icons.rounded.GpsOff
+import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.Warning
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.chisadin.hudwz.domain.HudAlert
+import com.chisadin.hudwz.domain.HudElementConfig
+import com.chisadin.hudwz.domain.HudElementOrientation
+import com.chisadin.hudwz.domain.HudFontWeight
+import com.chisadin.hudwz.domain.HudProfile
+import com.chisadin.hudwz.domain.HudState
+import com.chisadin.hudwz.domain.HudTextAlignment
+import com.chisadin.hudwz.domain.HudWidgetType
+import com.chisadin.hudwz.domain.LaneGuidance
+import com.chisadin.hudwz.domain.TurnType
+import com.chisadin.hudwz.domain.defaultHudElement
+import com.chisadin.hudwz.domain.locksAspectRatio
+import com.chisadin.hudwz.ui.theme.HudCyan
+import com.chisadin.hudwz.ui.theme.HudMuted
+import com.chisadin.hudwz.ui.theme.HudRed
+import com.chisadin.hudwz.ui.theme.HudSurface
+import com.chisadin.hudwz.ui.theme.HudText
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.roundToInt
+import kotlin.math.sin
+import kotlin.math.min
+
+@Composable
+fun HudRenderer(
+    state: HudState,
+    profile: HudProfile,
+    mirror: Boolean,
+    fontScale: Float,
+    modifier: Modifier = Modifier,
+    editing: Boolean = false,
+    selectedId: String? = null,
+    showInactiveInEditor: Boolean = false,
+    onSelect: (String) -> Unit = {},
+    onElementChange: (HudElementConfig) -> Unit = {},
+) {
+    BoxWithConstraints(
+        modifier = modifier
+            .background(Color.Black)
+            .graphicsLayer(scaleX = if (mirror && !editing) -1f else 1f),
+    ) {
+        val density = LocalDensity.current
+        val canvasWidthPx = constraints.maxWidth.toFloat()
+        val canvasHeightPx = constraints.maxHeight.toFloat()
+        val canvasWidthDp = with(density) { canvasWidthPx.toDp().value }
+        val canvasHeightDp = with(density) { canvasHeightPx.toDp().value }
+        val profileScale = profile.hudScale
+        profile.elements
+            .filter { it.visible || (editing && showInactiveInEditor) }
+            .filter { shouldRenderWidget(it.type, state) || (editing && showInactiveInEditor) }
+            .forEach { element ->
+            val widthDp = element.widthDp * element.scale * profileScale
+            val sourceHeightDp = if (element.type.locksAspectRatio) element.widthDp else element.heightDp
+            val heightDp = sourceHeightDp * element.scale * profileScale
+            val maxX = (canvasWidthDp - widthDp).coerceAtLeast(0f)
+            val maxY = (canvasHeightDp - heightDp).coerceAtLeast(0f)
+            val xPx = with(density) { element.x.coerceIn(0f, maxX).dp.toPx() }
+            val yPx = with(density) { element.y.coerceIn(0f, maxY).dp.toPx() }
+            var elementModifier = Modifier
+                .requiredSize(widthDp.dp, heightDp.dp)
+                .graphicsLayer(alpha = if (element.visible) element.opacity else .22f)
+                .semantics { contentDescription = widgetDescription(element.type, state) }
+            if (editing) {
+                elementModifier = elementModifier
+                    .clickable { onSelect(element.id) }
+                    .pointerInput(element.id, maxX, maxY) {
+                        var dragX = element.x
+                        var dragY = element.y
+                        detectDragGestures(
+                            onDragStart = {
+                                dragX = element.x
+                                dragY = element.y
+                                onSelect(element.id)
+                            },
+                        ) { change, amount ->
+                            change.consume()
+                            dragX = (dragX + amount.x / density.density).coerceIn(0f, maxX)
+                            dragY = (dragY + amount.y / density.density).coerceIn(0f, maxY)
+                            onElementChange(element.copy(x = dragX, y = dragY))
+                        }
+                    }
+            }
+            Box(
+                modifier = Modifier.offset { IntOffset(xPx.roundToInt(), yPx.roundToInt()) },
+            ) {
+                HudWidget(state, element, fontScale, elementModifier)
+                if (editing && selectedId == element.id) {
+                    FocusFrame(
+                        modifier = Modifier.requiredSize(widthDp.dp, heightDp.dp),
+                        element = element,
+                        densityScale = profileScale,
+                        canvasWidthDp = canvasWidthDp,
+                        canvasHeightDp = canvasHeightDp,
+                        onElementChange = onElementChange,
+                    )
+                }
+            }
+        }
+        if (state.overspeed && !editing) OverspeedVignette()
+    }
+}
+
+@Composable
+private fun FocusFrame(
+    modifier: Modifier,
+    element: HudElementConfig,
+    densityScale: Float,
+    canvasWidthDp: Float,
+    canvasHeightDp: Float,
+    onElementChange: (HudElementConfig) -> Unit,
+) {
+    Box(modifier.semantics { contentDescription = "Focused ${element.type.name}" }) {
+        Canvas(Modifier.fillMaxSize()) {
+            val thin = 1.dp.toPx()
+            val strong = 2.5.dp.toPx()
+            val corner = 15.dp.toPx().coerceAtMost(size.minDimension * .32f)
+            val inset = strong / 2f
+            drawRoundRect(
+                color = HudCyan.copy(alpha = .42f),
+                topLeft = Offset(inset, inset),
+                size = Size((size.width - strong).coerceAtLeast(0f), (size.height - strong).coerceAtLeast(0f)),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(7.dp.toPx()),
+                style = Stroke(thin),
+            )
+            val color = HudCyan
+            drawLine(color, Offset(inset, inset), Offset(inset + corner, inset), strong, StrokeCap.Square)
+            drawLine(color, Offset(inset, inset), Offset(inset, inset + corner), strong, StrokeCap.Square)
+            drawLine(color, Offset(size.width - inset, inset), Offset(size.width - inset - corner, inset), strong, StrokeCap.Square)
+            drawLine(color, Offset(size.width - inset, inset), Offset(size.width - inset, inset + corner), strong, StrokeCap.Square)
+            drawLine(color, Offset(inset, size.height - inset), Offset(inset + corner, size.height - inset), strong, StrokeCap.Square)
+            drawLine(color, Offset(inset, size.height - inset), Offset(inset, size.height - inset - corner), strong, StrokeCap.Square)
+            drawLine(color, Offset(size.width - inset, size.height - inset), Offset(size.width - inset - corner, size.height - inset), strong, StrokeCap.Square)
+            drawLine(color, Offset(size.width - inset, size.height - inset), Offset(size.width - inset, size.height - inset - corner), strong, StrokeCap.Square)
+        }
+        ResizeHandle(
+            modifier = Modifier.align(Alignment.BottomEnd),
+            element = element,
+            densityScale = densityScale,
+            aspectLocked = element.type.locksAspectRatio,
+            canvasWidthDp = canvasWidthDp,
+            canvasHeightDp = canvasHeightDp,
+            onElementChange = onElementChange,
+        )
+    }
+}
+
+@Composable
+fun HudWidgetPreview(type: HudWidgetType, modifier: Modifier = Modifier) {
+    val config = remember(type) {
+        defaultHudElement(type, "preview").copy(
+            iconSizeDp = 48f,
+            fontSizeSp = when (type) {
+                HudWidgetType.SPEED -> 34f
+                HudWidgetType.SPEED_LIMIT -> 24f
+                else -> 15f
+            },
+            spacingDp = 2f,
+        )
+    }
+    HudWidget(
+        state = PreviewHudState,
+        config = config,
+        globalFontScale = .9f,
+        modifier = modifier,
+    )
+}
+
+@Composable
+private fun ResizeHandle(
+    modifier: Modifier,
+    element: HudElementConfig,
+    densityScale: Float,
+    aspectLocked: Boolean,
+    canvasWidthDp: Float,
+    canvasHeightDp: Float,
+    onElementChange: (HudElementConfig) -> Unit,
+) {
+    val density = LocalDensity.current
+    Box(
+        modifier = modifier
+            .size(22.dp)
+            .clip(CircleShape)
+            .background(HudSurface)
+            .border(2.dp, HudCyan, CircleShape)
+            .pointerInput(element.id) {
+                var width = element.widthDp
+                var height = if (aspectLocked) element.widthDp else element.heightDp
+                detectDragGestures { change, amount ->
+                    change.consume()
+                    if (aspectLocked) {
+                        val delta = with(density) { ((amount.x + amount.y) / 2f).toDp().value } / densityScale
+                        width = (width + delta).coerceIn(28f, 500f)
+                        height = width
+                        onElementChange(
+                            element.copy(
+                                widthDp = width,
+                                heightDp = height,
+                                iconSizeDp = width * .9f,
+                                scale = 1f,
+                                x = element.x.coerceAtMost((canvasWidthDp - width * densityScale).coerceAtLeast(0f)),
+                                y = element.y.coerceAtMost((canvasHeightDp - height * densityScale).coerceAtLeast(0f)),
+                            ),
+                        )
+                    } else {
+                        width = (width + with(density) { amount.x.toDp().value } / densityScale).coerceIn(32f, 600f)
+                        height = (height + with(density) { amount.y.toDp().value } / densityScale).coerceIn(28f, 500f)
+                        onElementChange(
+                            element.copy(
+                                widthDp = width,
+                                heightDp = height,
+                                x = element.x.coerceAtMost((canvasWidthDp - width * element.scale * densityScale).coerceAtLeast(0f)),
+                                y = element.y.coerceAtMost((canvasHeightDp - height * element.scale * densityScale).coerceAtLeast(0f)),
+                            ),
+                        )
+                    }
+                }
+            },
+    )
+}
+
+@Composable
+private fun HudWidget(
+    state: HudState,
+    config: HudElementConfig,
+    globalFontScale: Float,
+    modifier: Modifier,
+) {
+    val weight = when (config.fontWeight) {
+        HudFontWeight.NORMAL -> FontWeight.Normal
+        HudFontWeight.BOLD -> FontWeight.Bold
+        HudFontWeight.BLACK -> FontWeight.Black
+    }
+    val align = when (config.textAlignment) {
+        HudTextAlignment.START -> TextAlign.Start
+        HudTextAlignment.CENTER -> TextAlign.Center
+        HudTextAlignment.END -> TextAlign.End
+    }
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        when (config.type) {
+            HudWidgetType.SPEED -> SpeedDial(state.speed ?: 0, state.speedLimit, state.overspeed, config, globalFontScale)
+            HudWidgetType.SPEED_LIMIT -> SpeedLimitSign(state.speedLimit, config, globalFontScale)
+            HudWidgetType.TURN -> ManeuverWidget(state.turn, state.roundaboutExit, config)
+            HudWidgetType.NEXT_TURN -> ManeuverWidget(state.nextTurn, null, config)
+            HudWidgetType.DISTANCE -> HudTextWidget(formatDistance(state.distanceMeters), config, globalFontScale, weight, align)
+            HudWidgetType.STREET -> HudTextWidget(state.street.orEmpty().ifBlank { "—" }, config, globalFontScale, weight, align)
+            HudWidgetType.NEXT_STREET -> HudTextWidget(state.nextStreet.orEmpty().ifBlank { "—" }, config, globalFontScale, weight, align)
+            HudWidgetType.ETA -> HudTextWidget(state.eta ?: "--:--", config, globalFontScale, weight, align)
+            HudWidgetType.REMAINING -> HudTextWidget(remainingText(state), config, globalFontScale, weight, align)
+            HudWidgetType.GPS -> StatusIcon(state.gpsAvailable, true, config)
+            HudWidgetType.CONNECTION -> StatusIcon(state.connected, false, config)
+            HudWidgetType.ALERTS -> AlertRail(state.alerts, config)
+            HudWidgetType.LANES -> LaneStrip(state.lanes)
+        }
+    }
+}
+
+@Composable
+private fun SpeedDial(
+    speed: Int,
+    limit: Int?,
+    overspeed: Boolean,
+    config: HudElementConfig,
+    fontScale: Float,
+) {
+    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        val fittedFont = min(config.fontSizeSp * fontScale, min(maxWidth.value, maxHeight.value) * .42f)
+            .coerceAtLeast(6f)
+        Canvas(Modifier.fillMaxSize().padding(8.dp)) {
+            val stroke = size.minDimension * .055f
+            val bounds = Rect(stroke, stroke, size.width - stroke, size.height - stroke)
+            drawOval(HudSurface, topLeft = bounds.topLeft, size = bounds.size)
+            drawArc(
+                color = Color(0xFF27303B),
+                startAngle = 135f,
+                sweepAngle = 270f,
+                useCenter = false,
+                topLeft = bounds.topLeft,
+                size = bounds.size,
+                style = Stroke(stroke, cap = StrokeCap.Round),
+            )
+            val progress = (speed / (limit?.takeIf { it >= 10 }?.toFloat() ?: 160f)).coerceIn(0f, 1f)
+            drawArc(
+                brush = if (overspeed) Brush.linearGradient(listOf(HudRed, HudRed))
+                else Brush.linearGradient(listOf(HudCyan, Color(0xFF4F7CFF))),
+                startAngle = 135f,
+                sweepAngle = 270f * progress,
+                useCenter = false,
+                topLeft = bounds.topLeft,
+                size = bounds.size,
+                style = Stroke(stroke, cap = StrokeCap.Round),
+            )
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = speed.toString(),
+                color = if (overspeed) HudRed else HudText,
+                fontSize = fittedFont.sp,
+                fontWeight = FontWeight.Black,
+                maxLines = 1,
+            )
+            Text("km/h", color = HudMuted, fontSize = (fittedFont * .22f).coerceAtLeast(5f).sp)
+        }
+    }
+}
+
+@Composable
+private fun SpeedLimitSign(limit: Int?, config: HudElementConfig, fontScale: Float) {
+    val bitmap = rememberAssetBitmap(
+        limit?.takeIf { it in 10..120 && it % 10 == 0 }
+            ?.let { "speedLimit/speed_limit_$it.png" }
+            ?: "speedLimit/no_speed.png",
+    )
+    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        val size = min(maxWidth.value, maxHeight.value).coerceAtLeast(4f)
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap,
+                contentDescription = "Speed limit ${limit ?: "unknown"}",
+                modifier = Modifier.size(size.dp),
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(size.dp)
+                    .padding((size * .04f).dp)
+                    .clip(CircleShape)
+                    .background(Color.White)
+                    .border((size * .07f).coerceAtLeast(1f).dp, HudRed, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = limit?.toString() ?: "—",
+                    color = Color.Black,
+                    fontSize = min(config.fontSizeSp * fontScale, size * .42f).coerceAtLeast(6f).sp,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ManeuverWidget(turn: TurnType, exit: Int?, config: HudElementConfig) {
+    val bitmap = rememberAssetBitmap(turnAsset(turn))
+    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        val iconSize = (min(maxWidth.value, maxHeight.value) * .9f).coerceAtLeast(4f)
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap,
+                contentDescription = "Maneuver ${turn.name}",
+                modifier = Modifier.size(iconSize.dp),
+            )
+        } else {
+            ManeuverArrow(turn, Modifier.size(iconSize.dp))
+        }
+        if (turn in setOf(TurnType.ROUNDABOUT, TurnType.ROUNDABOUT_LEFT, TurnType.ROUNDABOUT_RIGHT, TurnType.ROUNDABOUT_STRAIGHT, TurnType.ROUNDABOUT_U_TURN) && exit != null) {
+            Text(exit.toString(), color = HudText, fontSize = (iconSize * .17f).coerceAtLeast(6f).sp, fontWeight = FontWeight.Black)
+        }
+    }
+}
+
+@Composable
+private fun ManeuverArrow(turn: TurnType, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        if (turn == TurnType.NONE) return@Canvas
+        val stroke = size.minDimension * .10f
+        val color = HudText
+        if (turn in setOf(TurnType.ROUNDABOUT, TurnType.ROUNDABOUT_LEFT, TurnType.ROUNDABOUT_RIGHT, TurnType.ROUNDABOUT_STRAIGHT, TurnType.ROUNDABOUT_U_TURN)) {
+            drawArc(
+                color = color,
+                startAngle = 30f,
+                sweepAngle = 300f,
+                useCenter = false,
+                style = Stroke(stroke, cap = StrokeCap.Round),
+                topLeft = Offset(stroke, stroke),
+                size = Size(size.width - stroke * 2, size.height - stroke * 2),
+            )
+            return@Canvas
+        }
+        val direction = when (turn) {
+            TurnType.LEFT, TurnType.KEEP_LEFT, TurnType.EXIT_LEFT -> Offset(-1f, 0f)
+            TurnType.RIGHT, TurnType.KEEP_RIGHT, TurnType.EXIT_RIGHT -> Offset(1f, 0f)
+            TurnType.SLIGHT_LEFT -> Offset(-.65f, -.75f)
+            TurnType.SLIGHT_RIGHT -> Offset(.65f, -.75f)
+            TurnType.SHARP_LEFT -> Offset(-.85f, .45f)
+            TurnType.SHARP_RIGHT -> Offset(.85f, .45f)
+            TurnType.U_TURN, TurnType.U_TURN_RIGHT -> Offset(-.8f, .6f)
+            else -> Offset(0f, -1f)
+        }
+        val start = Offset(size.width / 2f, size.height * .86f)
+        val bend = Offset(size.width / 2f, size.height * .46f)
+        val end = Offset(
+            bend.x + direction.x * size.width * .32f,
+            bend.y + direction.y * size.height * .32f,
+        )
+        val path = Path().apply {
+            moveTo(start.x, start.y)
+            lineTo(bend.x, bend.y)
+            lineTo(end.x, end.y)
+        }
+        drawPath(path, color, style = Stroke(stroke, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        val angle = kotlin.math.atan2(direction.y, direction.x)
+        val head = stroke * 2.2f
+        val left = Offset(
+            end.x - cos(angle - PI.toFloat() / 6f) * head,
+            end.y - sin(angle - PI.toFloat() / 6f) * head,
+        )
+        val right = Offset(
+            end.x - cos(angle + PI.toFloat() / 6f) * head,
+            end.y - sin(angle + PI.toFloat() / 6f) * head,
+        )
+        drawPath(Path().apply { moveTo(end.x, end.y); lineTo(left.x, left.y); lineTo(right.x, right.y); close() }, color)
+    }
+}
+
+@Composable
+private fun HudTextWidget(
+    text: String,
+    config: HudElementConfig,
+    fontScale: Float,
+    weight: FontWeight,
+    align: TextAlign,
+) {
+    Text(
+        text = text,
+        color = HudText,
+        fontSize = (config.fontSizeSp * fontScale).sp,
+        fontWeight = weight,
+        textAlign = align,
+        maxLines = 2,
+        modifier = Modifier.fillMaxSize().padding(config.spacingDp.dp),
+    )
+}
+
+@Composable
+private fun StatusIcon(active: Boolean, gps: Boolean, config: HudElementConfig) {
+    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        val compact = maxWidth.value < 72f || maxHeight.value < 32f
+        val availableHeight = maxHeight.value
+        val iconSize = min(config.iconSizeDp, min(maxHeight.value * .72f, maxWidth.value * if (compact) .72f else .28f))
+            .coerceAtLeast(4f)
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(maxHeight / 2))
+                .background(HudSurface.copy(alpha = .92f))
+                .padding(horizontal = if (compact) 2.dp else 8.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(if (compact) 0.dp else 6.dp),
+        ) {
+            Icon(
+                imageVector = if (gps) {
+                    if (active) Icons.Rounded.GpsFixed else Icons.Rounded.GpsOff
+                } else {
+                    if (active) Icons.Rounded.BluetoothConnected else Icons.Rounded.BluetoothDisabled
+                },
+                contentDescription = null,
+                tint = if (active) HudCyan else HudRed,
+                modifier = Modifier.size(iconSize.dp),
+            )
+            if (!compact) {
+                Text(
+                    if (gps) "GPS" else if (active) "LINK" else "OFFLINE",
+                    color = HudText,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = min(config.fontSizeSp, availableHeight * .3f).coerceAtLeast(6f).sp,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AlertRail(alerts: List<HudAlert>, config: HudElementConfig) {
+    val vertical = config.orientation != HudElementOrientation.HORIZONTAL
+    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        val count = alerts.take(4).size.coerceAtLeast(1)
+        val availablePerItem = if (vertical) maxHeight.value / count else maxWidth.value / count
+        val crossAxis = if (vertical) maxWidth.value else maxHeight.value
+        val iconSize = min(config.iconSizeDp, min(availablePerItem * .7f, crossAxis * .78f)).coerceAtLeast(6f)
+        val content: @Composable () -> Unit = {
+            alerts.take(4).forEach { alert -> AlertBadge(alert, iconSize) }
+            if (alerts.isEmpty()) {
+                Icon(
+                    Icons.Rounded.Warning,
+                    contentDescription = null,
+                    tint = HudMuted.copy(alpha = .25f),
+                    modifier = Modifier.size(iconSize.dp),
+                )
+            }
+        }
+        if (vertical) Column(verticalArrangement = Arrangement.spacedBy(config.spacingDp.dp), horizontalAlignment = Alignment.CenterHorizontally) { content() }
+        else Row(horizontalArrangement = Arrangement.spacedBy(config.spacingDp.dp), verticalAlignment = Alignment.CenterVertically) { content() }
+    }
+}
+
+@Composable
+private fun AlertBadge(alert: HudAlert, iconSize: Float) {
+    val bitmap = rememberAssetBitmap(alertAsset(alert))
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            modifier = Modifier.size(iconSize.dp).clip(CircleShape).background(Color(0xFF202733)),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap,
+                    contentDescription = "Alert ${alert.type}",
+                    modifier = Modifier.size((iconSize * .86f).dp),
+                )
+            } else {
+                Icon(
+                    imageVector = if (alert.type == 2 || alert.type in 40..46) Icons.Rounded.Speed else Icons.Rounded.Warning,
+                    contentDescription = "Alert ${alert.type}",
+                    tint = if (alert.type == 2 || alert.type in 40..46) HudCyan else HudRed,
+                    modifier = Modifier.size((iconSize * .62f).dp),
+                )
+            }
+            val valueIsEmbeddedInAsset = bitmap != null && alert.type == 8
+            if (!valueIsEmbeddedInAsset) {
+                alert.value?.let {
+                    Text(it.toString(), color = HudText, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                }
+            }
+        }
+        Text(
+            formatDistance(alert.distanceMeters),
+            color = HudText,
+            fontSize = (iconSize * .24f).coerceIn(5f, 13f).sp,
+            fontWeight = FontWeight.Bold,
+        )
+    }
+}
+
+@Composable
+private fun LaneStrip(lanes: List<LaneGuidance>) {
+    val arrowHead = rememberAssetBitmap("Waze/direction_arrow_head.png")
+    Canvas(Modifier.fillMaxSize().padding(4.dp)) {
+        if (lanes.isEmpty()) return@Canvas
+        val laneWidth = size.width / lanes.size
+        lanes.forEachIndexed { index, lane ->
+            if (index > 0) drawLine(HudMuted.copy(alpha = .35f), Offset(index * laneWidth, size.height * .2f), Offset(index * laneWidth, size.height * .82f), 1.dp.toPx())
+            val bits = (0..7).filter { lane.directionsMask and (1 shl it) != 0 }
+            bits.forEach { bit ->
+                val selected = lane.selectedMask and (1 shl bit) != 0
+                val angle = laneAngle(bit)
+                drawLaneArrow(
+                    center = Offset(index * laneWidth + laneWidth / 2f, size.height * .82f),
+                    angleDegrees = angle,
+                    color = if (selected) HudText else HudMuted.copy(alpha = .55f),
+                    stroke = if (selected) size.height * .075f else size.height * .055f,
+                    length = size.height * .48f,
+                    arrowHead = arrowHead,
+                )
+            }
+        }
+    }
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawLaneArrow(
+    center: Offset,
+    angleDegrees: Float,
+    color: Color,
+    stroke: Float,
+    length: Float,
+    arrowHead: ImageBitmap?,
+) {
+    val radians = angleDegrees / 180f * PI.toFloat()
+    val direction = Offset(sin(radians), -cos(radians))
+    val bend = Offset(center.x, center.y - length * .46f)
+    val tip = if (kotlin.math.abs(angleDegrees) >= 150f) {
+        Offset(center.x + if (angleDegrees < 0) -length * .42f else length * .42f, center.y - length * .30f)
+    } else bend + direction * length * .54f
+    val headWidth = (stroke * 2.8f).coerceAtLeast(4f)
+    val headHeight = headWidth * 41f / 63f
+    val shaftEnd = tip - direction * headHeight * .72f
+    val body = Path().apply {
+        moveTo(center.x, center.y)
+        if (kotlin.math.abs(angleDegrees) >= 150f) {
+            val side = if (angleDegrees < 0) -1f else 1f
+            lineTo(center.x, center.y - length * .62f)
+            cubicTo(
+                center.x, center.y - length * .82f,
+                center.x + side * length * .42f, center.y - length * .82f,
+                shaftEnd.x, shaftEnd.y,
+            )
+        } else {
+            lineTo(center.x, bend.y + if (direction.y > 0f) length * .10f else 0f)
+            quadraticTo(bend.x, bend.y, shaftEnd.x, shaftEnd.y)
+        }
+    }
+    drawPath(body, color, style = Stroke(stroke, cap = StrokeCap.Round, join = StrokeJoin.Round))
+    if (arrowHead != null) {
+        val dstWidth = headWidth.roundToInt().coerceAtLeast(1)
+        val dstHeight = headHeight.roundToInt().coerceAtLeast(1)
+        withTransform({ rotate(angleDegrees, pivot = tip) }) {
+            drawImage(
+                image = arrowHead,
+                dstOffset = IntOffset((tip.x - dstWidth / 2f).roundToInt(), tip.y.roundToInt()),
+                dstSize = IntSize(dstWidth, dstHeight),
+                colorFilter = ColorFilter.tint(color),
+            )
+        }
+    } else {
+        val perpendicular = Offset(-direction.y, direction.x)
+        val back = tip - direction * stroke * 2f
+        drawPath(Path().apply {
+            moveTo(tip.x, tip.y)
+            lineTo((back + perpendicular * stroke).x, (back + perpendicular * stroke).y)
+            lineTo((back - perpendicular * stroke).x, (back - perpendicular * stroke).y)
+            close()
+        }, color)
+    }
+}
+
+@Composable
+private fun OverspeedVignette() {
+    val context = LocalContext.current
+    val animationsEnabled = remember {
+        runCatching { Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f }
+            .getOrDefault(true)
+    }
+    val alpha = if (animationsEnabled) {
+        val transition = rememberInfiniteTransition(label = "overspeed")
+        val animated by transition.animateFloat(
+            initialValue = .28f,
+            targetValue = .72f,
+            animationSpec = infiniteRepeatable(tween(680), RepeatMode.Reverse),
+            label = "overspeedAlpha",
+        )
+        animated
+    } else .55f
+    Box(Modifier.fillMaxSize().alpha(alpha)) {
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(HudRed.copy(.55f), Color.Transparent, Color.Transparent, HudRed.copy(.55f)))))
+        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(HudRed.copy(.45f), Color.Transparent, Color.Transparent, HudRed.copy(.45f)))))
+    }
+}
+
+private fun widgetDescription(type: HudWidgetType, state: HudState): String = when (type) {
+    HudWidgetType.SPEED -> "Current speed ${state.speed ?: 0} kilometers per hour"
+    HudWidgetType.SPEED_LIMIT -> "Speed limit ${state.speedLimit ?: "unknown"}"
+    HudWidgetType.TURN -> "Next maneuver ${state.turn.name}"
+    HudWidgetType.NEXT_TURN -> "Following maneuver ${state.nextTurn.name}"
+    HudWidgetType.DISTANCE -> "Maneuver distance ${formatDistance(state.distanceMeters)}"
+    HudWidgetType.STREET -> "Current street ${state.street.orEmpty()}"
+    HudWidgetType.NEXT_STREET -> "Next street ${state.nextStreet.orEmpty()}"
+    HudWidgetType.ETA -> "Estimated arrival ${state.eta.orEmpty()}"
+    HudWidgetType.REMAINING -> remainingText(state)
+    HudWidgetType.GPS -> if (state.gpsAvailable) "GPS available" else "GPS unavailable"
+    HudWidgetType.CONNECTION -> if (state.connected) "Bluetooth connected" else "Bluetooth disconnected"
+    HudWidgetType.ALERTS -> "${state.alerts.size} upcoming alerts"
+    HudWidgetType.LANES -> "Lane guidance, ${state.lanes.size} lanes"
+}
+
+private fun shouldRenderWidget(type: HudWidgetType, state: HudState): Boolean = when (type) {
+    HudWidgetType.SPEED, HudWidgetType.SPEED_LIMIT,
+    HudWidgetType.GPS, HudWidgetType.CONNECTION -> true
+    HudWidgetType.TURN -> state.turn != TurnType.NONE
+    HudWidgetType.NEXT_TURN -> state.nextTurn != TurnType.NONE
+    HudWidgetType.DISTANCE -> state.turn != TurnType.NONE && state.distanceMeters != null
+    HudWidgetType.STREET -> !state.street.isNullOrBlank()
+    HudWidgetType.NEXT_STREET -> state.turn != TurnType.NONE && !state.nextStreet.isNullOrBlank()
+    HudWidgetType.ETA -> !state.eta.isNullOrBlank()
+    HudWidgetType.REMAINING -> state.remainingMeters != null || state.remainingKm != null || state.remainingMinutes != null
+    HudWidgetType.ALERTS -> state.alerts.isNotEmpty()
+    HudWidgetType.LANES -> state.lanes.isNotEmpty()
+}
+
+private fun formatDistance(meters: Int?): String = when {
+    meters == null -> "—"
+    meters < 1_000 -> "$meters m"
+    meters < 10_000 -> "%.1f km".format(meters / 1_000.0)
+    else -> "${(meters / 1_000.0).roundToInt()} km"
+}
+
+private fun remainingText(state: HudState): String {
+    val distance = state.remainingMeters?.let(::formatDistance)
+        ?: state.remainingKm?.let { "%.1f km".format(it) }
+    val minutes = state.remainingMinutes?.let { if (it < 60) "$it min" else "${it / 60}h ${it % 60}m" }
+    return listOfNotNull(distance, minutes, state.eta?.let { "ETA $it" }).joinToString("  ·  ").ifBlank { "—" }
+}
+
+private fun laneAngle(bit: Int): Float = when (bit) {
+    0 -> 0f
+    1 -> -35f
+    2 -> -80f
+    3 -> -125f
+    4 -> 35f
+    5 -> 80f
+    6 -> 125f
+    else -> 180f
+}
+
+@Composable
+private fun rememberAssetBitmap(path: String?): ImageBitmap? {
+    val context = LocalContext.current
+    return remember(path) {
+        path?.let { assetPath ->
+            runCatching {
+                context.assets.open(assetPath).use { BitmapFactory.decodeStream(it)?.asImageBitmap() }
+            }.getOrNull()
+        }
+    }
+}
+
+private fun turnAsset(turn: TurnType): String? = when (turn) {
+    TurnType.NONE -> null
+    TurnType.CONTINUE -> "Waze/car_big_trans_direction_forward.png"
+    TurnType.LEFT, TurnType.SHARP_LEFT -> "Waze/car_big_trans_direction_left.png"
+    TurnType.RIGHT, TurnType.SHARP_RIGHT -> "Waze/car_big_trans_direction_right.png"
+    TurnType.SLIGHT_LEFT, TurnType.KEEP_LEFT, TurnType.EXIT_LEFT -> "Waze/car_big_trans_direction_exit_left.png"
+    TurnType.SLIGHT_RIGHT, TurnType.KEEP_RIGHT, TurnType.EXIT_RIGHT -> "Waze/car_big_trans_direction_exit_right.png"
+    TurnType.U_TURN -> "Waze/car_big_trans_direction_u_turn.png"
+    TurnType.U_TURN_RIGHT -> "Waze/car_big_trans_direction_u_turn_lhs.png"
+    TurnType.ROUNDABOUT -> "Waze/car_big_trans_directions_roundabout.png"
+    TurnType.ROUNDABOUT_LEFT -> "Waze/car_big_trans_directions_roundabout_l.png"
+    TurnType.ROUNDABOUT_RIGHT -> "Waze/car_big_trans_directions_roundabout_r.png"
+    TurnType.ROUNDABOUT_STRAIGHT -> "Waze/car_big_trans_directions_roundabout_s.png"
+    TurnType.ROUNDABOUT_U_TURN -> "Waze/car_big_trans_directions_roundabout_u.png"
+    TurnType.ARRIVE -> "Waze/car_big_trans_direction_end.png"
+    TurnType.FERRY -> null
+}
+
+private fun alertAsset(alert: HudAlert): String? {
+    val file = when (alert.type) {
+        1 -> "bigpin_police.png"
+        2 -> "bigpin_speed_camera.png"
+        3 -> "bigpin_red_light_camera.png"
+        4 -> "bigpin_hazard.png"
+        5 -> "bigpin_accident.png"
+        6 -> "bigpin_traffic_${alert.severity?.coerceIn(1, 4) ?: 1}.png"
+        7, 38 -> "bigpin_closure.png"
+        8 -> alert.value?.let { "bigpin_speed_limit_world_$it.png" } ?: "bigpin_speed_camera.png"
+        9 -> "no_passing_in.png"
+        10 -> "no_passing_out.png"
+        11 -> "bigpin_railroad.png"
+        12 -> "bigpin_permanent_hazard_toll_booth.png"
+        13 -> "bigpin_hazard_stopped.png"
+        14 -> "bigpin_hazard_construction.png"
+        15 -> "bigpin_hazard_pothole.png"
+        16 -> "bigpin_bad_weather.png"
+        17 -> "bigpin_blocked_lane.png"
+        18 -> "bigpin_permanent_hazard_intersection.png"
+        19 -> "loi_ra.png"
+        20, 21 -> "bigpin_parking.png"
+        22, 25 -> "end_of_previous_prohibitions.png"
+        23 -> "residential_area_start.png"
+        24 -> "residential_area_end.png"
+        26, 35 -> "cam_oto.png"
+        27, 36 -> "cam_xe_may.png"
+        28, 67, 68, 72 -> "no_left_turn.png"
+        29, 65, 73 -> "no_right_turn.png"
+        30, 74 -> "no_u_turn.png"
+        31, 32 -> "only_go_straight.png"
+        33 -> "only_turn_right.png"
+        34 -> "only_turn_left.png"
+        37, 60 -> "bigpin_permanent_hazard_fork.png"
+        39, 66, 69 -> "no_left_and_u_turn.png"
+        40 -> "bigpin_phone_camera.png"
+        41 -> "bigpin_dummy_camera.png"
+        42 -> "bigpin_seatbelt_camera.png"
+        43 -> "bigpin_distance_between_vehicles_camera.png"
+        44 -> "bigpin_bus_lane_cam.png"
+        45 -> "bigpin_noise_camera.png"
+        46 -> "bigpin_stop_sign_camera.png"
+        47 -> "bigpin_animal.png"
+        48 -> "bigpin_hazard_object_on_road.png"
+        49 -> "bigpin_hazard_roadkill.png"
+        50 -> "bigpin_hazard_weather_flood.png"
+        51 -> "bigpin_hazard_weather_fog.png"
+        52 -> "bigpin_hazard_weather_hail.png"
+        53 -> "bigpin_hazard_weather_snow.png"
+        54 -> "bigpin_hazard_weather_ice.png"
+        55 -> "bigpin_slippery_road.png"
+        56 -> "bigpin_permanent_hazard_speed_bumps.png"
+        57 -> "bigpin_permanent_hazard_school_zone.png"
+        58 -> "bigpin_permanent_hazard_lanes_merging.png"
+        59 -> "bigpin_permanent_hazard_dangerous_curves.png"
+        61 -> "bigpin_hazard_broken_light.png"
+        62 -> "bigpin_cyclist.png"
+        63 -> "bigpin_emergency_vehicle.png"
+        64 -> "bigpin_personal_safety_a.png"
+        70, 71 -> "no_right_and_u_turn.png"
+        else -> null
+    }
+    return file?.let { "alerts/$it" }
+}
+
+val PreviewHudState = HudState(
+    navigating = true,
+    speed = 85,
+    speedLimit = 80,
+    overspeed = true,
+    distanceMeters = 350,
+    turn = TurnType.CONTINUE,
+    nextTurn = TurnType.LEFT,
+    lanes = listOf(LaneGuidance(5, 4), LaneGuidance(1, 1), LaneGuidance(17, 16)),
+    street = "QL1A",
+    nextStreet = "Nguyễn Ái Quốc",
+    eta = "09:32",
+    remainingMinutes = 24,
+    remainingKm = 18.5,
+    gpsAvailable = true,
+    connected = true,
+    alerts = listOf(HudAlert(2, 300), HudAlert(8, 800, 60)),
+)
