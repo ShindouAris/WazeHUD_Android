@@ -62,6 +62,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -220,7 +221,9 @@ fun HudWidgetPreview(type: HudWidgetType, modifier: Modifier = Modifier) {
             iconSizeDp = 48f,
             fontSizeSp = when (type) {
                 HudWidgetType.SPEED -> 34f
+                HudWidgetType.SPEED_NUMBER -> 30f
                 HudWidgetType.SPEED_LIMIT -> 24f
+                HudWidgetType.SPEED_LIMIT_BAR, HudWidgetType.TRAFFIC_DELAY -> 13f
                 else -> 15f
             },
             spacingDp = 2f,
@@ -307,7 +310,9 @@ private fun HudWidget(
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         when (config.type) {
             HudWidgetType.SPEED -> SpeedDial(state.speed ?: 0, state.speedLimit, state.overspeed, config, globalFontScale)
+            HudWidgetType.SPEED_NUMBER -> SpeedNumber(state.speed ?: 0, state.overspeed, config, globalFontScale, weight)
             HudWidgetType.SPEED_LIMIT -> SpeedLimitSign(state.speedLimit, config, globalFontScale)
+            HudWidgetType.SPEED_LIMIT_BAR -> SpeedToLimitBar(state.speed ?: 0, state.speedLimit, state.overspeed)
             HudWidgetType.TURN -> ManeuverWidget(state.turn, state.roundaboutExit, config)
             HudWidgetType.NEXT_TURN -> ManeuverWidget(state.nextTurn, null, config)
             HudWidgetType.DISTANCE -> HudTextWidget(formatDistance(state.distanceMeters), config, globalFontScale, weight, align)
@@ -319,6 +324,128 @@ private fun HudWidget(
             HudWidgetType.CONNECTION -> StatusIcon(state.connected, false, config)
             HudWidgetType.ALERTS -> AlertRail(state.alerts, config)
             HudWidgetType.LANES -> LaneStrip(state.lanes)
+            HudWidgetType.TRAFFIC_DELAY -> TrafficDelayWidget(state.trafficDelayMinutes, state.trafficSeverity, config, globalFontScale)
+        }
+    }
+}
+
+@Composable
+private fun SpeedNumber(
+    speed: Int,
+    overspeed: Boolean,
+    config: HudElementConfig,
+    fontScale: Float,
+    weight: FontWeight,
+) {
+    val numberFont = rememberHudNumberFont()
+    val textFont = rememberHudTextFont()
+    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        val fitted = min(
+            config.fontSizeSp * fontScale * 1.18f,
+            min(maxWidth.value * .78f, maxHeight.value * .69f),
+        ).coerceAtLeast(7f)
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = speed.coerceAtLeast(0).toString(),
+                color = if (overspeed) HudRed else HudText,
+                fontSize = fitted.sp,
+                fontWeight = weight,
+                fontFamily = numberFont,
+                maxLines = 1,
+            )
+            Text(
+                text = "Km/h",
+                color = HudMuted,
+                fontSize = (fitted * .30f).coerceAtLeast(7f).sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = textFont,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SpeedToLimitBar(
+    speed: Int,
+    limit: Int?,
+    overspeed: Boolean,
+) {
+    val legalLimit = limit?.takeIf { it > 0 }
+    Canvas(Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 2.dp)) {
+            val y = size.height / 2f
+            val stroke = (size.height * .46f).coerceIn(3.dp.toPx(), 12.dp.toPx())
+            val ratio = if (legalLimit != null) speed.coerceAtLeast(0) / legalLimit.toFloat() else 0f
+            drawLine(Color(0xFF163B66), Offset(0f, y), Offset(size.width, y), stroke, StrokeCap.Round)
+            drawLine(
+                color = if (overspeed || ratio > 1f) HudRed else Color(0xFF15B8FF),
+                start = Offset(0f, y),
+                end = Offset(size.width * ratio.coerceIn(0f, 1f), y),
+                strokeWidth = stroke,
+                cap = StrokeCap.Round,
+            )
+    }
+}
+
+@Composable
+private fun TrafficDelayWidget(
+    delayMinutes: Int?,
+    severity: Int?,
+    config: HudElementConfig,
+    fontScale: Float,
+) {
+    val level = severity?.coerceIn(1, 4) ?: 1
+    val bitmap = rememberAssetBitmap("alerts/bigpin_traffic_$level.png")
+    val numberFont = rememberHudNumberFont()
+    val textFont = rememberHudTextFont()
+    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        val iconSize = min(config.iconSizeDp, min(maxHeight.value * .82f, maxWidth.value * .34f)).coerceAtLeast(6f)
+        val textSize = min(config.fontSizeSp * fontScale, maxHeight.value * .36f).coerceAtLeast(7f)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(config.spacingDp.dp),
+        ) {
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap,
+                    contentDescription = "Traffic severity $level",
+                    modifier = Modifier.size(iconSize.dp),
+                )
+            } else {
+                Icon(
+                    Icons.Rounded.Warning,
+                    contentDescription = "Traffic",
+                    tint = HudRed,
+                    modifier = Modifier.size(iconSize.dp),
+                )
+            }
+            Column {
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(
+                        text = "+${delayMinutes ?: 0}",
+                        color = HudText,
+                        fontSize = textSize.sp,
+                        fontWeight = FontWeight.Black,
+                        fontFamily = numberFont,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = " min",
+                        color = HudText,
+                        fontSize = (textSize * .58f).coerceAtLeast(6f).sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = textFont,
+                        maxLines = 1,
+                    )
+                }
+                Text(
+                    text = "traffic delay",
+                    color = HudMuted,
+                    fontSize = (textSize * .48f).coerceAtLeast(6f).sp,
+                    fontFamily = textFont,
+                    maxLines = 1,
+                )
+            }
         }
     }
 }
@@ -331,6 +458,8 @@ private fun SpeedDial(
     config: HudElementConfig,
     fontScale: Float,
 ) {
+    val numberFont = rememberHudNumberFont()
+    val textFont = rememberHudTextFont()
     BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         val fittedFont = min(config.fontSizeSp * fontScale, min(maxWidth.value, maxHeight.value) * .42f)
             .coerceAtLeast(6f)
@@ -365,53 +494,65 @@ private fun SpeedDial(
                 color = if (overspeed) HudRed else HudText,
                 fontSize = fittedFont.sp,
                 fontWeight = FontWeight.Black,
+                fontFamily = numberFont,
                 maxLines = 1,
             )
-            Text("km/h", color = HudMuted, fontSize = (fittedFont * .22f).coerceAtLeast(5f).sp)
+            Text(
+                "km/h",
+                color = HudMuted,
+                fontSize = (fittedFont * .22f).coerceAtLeast(5f).sp,
+                fontFamily = textFont,
+            )
         }
     }
 }
 
 @Composable
 private fun SpeedLimitSign(limit: Int?, config: HudElementConfig, fontScale: Float) {
-    val bitmap = rememberAssetBitmap(
-        limit?.takeIf { it in 10..120 && it % 10 == 0 }
-            ?.let { "speedLimit/speed_limit_$it.png" }
-            ?: "speedLimit/no_speed.png",
-    )
     BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         val size = min(maxWidth.value, maxHeight.value).coerceAtLeast(4f)
-        if (bitmap != null) {
-            Image(
-                bitmap = bitmap,
-                contentDescription = "Speed limit ${limit ?: "unknown"}",
-                modifier = Modifier.size(size.dp),
+        GeneratedSpeedLimitSign(
+            limit = limit,
+            fontSizeSp = min(config.fontSizeSp * fontScale * 1.65f, size * .80f).coerceAtLeast(8f),
+            modifier = Modifier.size(size.dp),
+        )
+    }
+}
+
+@Composable
+private fun GeneratedSpeedLimitSign(
+    limit: Int?,
+    fontSizeSp: Float,
+    modifier: Modifier = Modifier,
+) {
+    val numberFont = rememberHudNumberFont()
+    Box(modifier, contentAlignment = Alignment.Center) {
+        Canvas(Modifier.fillMaxSize().padding(2.dp)) {
+            val radius = size.minDimension / 2f
+            val border = (radius * .20f).coerceAtLeast(1.5.dp.toPx())
+            drawCircle(Color.White, radius = radius, center = center)
+            drawCircle(
+                color = HudRed,
+                radius = (radius - border / 2f).coerceAtLeast(0f),
+                center = center,
+                style = Stroke(border),
             )
-        } else {
-            Box(
-                modifier = Modifier
-                    .size(size.dp)
-                    .padding((size * .04f).dp)
-                    .clip(CircleShape)
-                    .background(Color.White)
-                    .border((size * .07f).coerceAtLeast(1f).dp, HudRed, CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = limit?.toString() ?: "—",
-                    color = Color.Black,
-                    fontSize = min(config.fontSizeSp * fontScale, size * .42f).coerceAtLeast(6f).sp,
-                    fontWeight = FontWeight.Black,
-                    maxLines = 1,
-                )
-            }
         }
+        Text(
+            text = limit?.toString() ?: "—",
+            color = Color.Black,
+            fontSize = fontSizeSp.sp,
+            fontWeight = FontWeight.Black,
+            fontFamily = if (limit != null) numberFont else FontFamily.SansSerif,
+            maxLines = 1,
+        )
     }
 }
 
 @Composable
 private fun ManeuverWidget(turn: TurnType, exit: Int?, config: HudElementConfig) {
     val bitmap = rememberAssetBitmap(turnAsset(turn))
+    val numberFont = rememberHudNumberFont()
     BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         val iconSize = (min(maxWidth.value, maxHeight.value) * .9f).coerceAtLeast(4f)
         if (bitmap != null) {
@@ -424,7 +565,13 @@ private fun ManeuverWidget(turn: TurnType, exit: Int?, config: HudElementConfig)
             ManeuverArrow(turn, Modifier.size(iconSize.dp))
         }
         if (turn in setOf(TurnType.ROUNDABOUT, TurnType.ROUNDABOUT_LEFT, TurnType.ROUNDABOUT_RIGHT, TurnType.ROUNDABOUT_STRAIGHT, TurnType.ROUNDABOUT_U_TURN) && exit != null) {
-            Text(exit.toString(), color = HudText, fontSize = (iconSize * .17f).coerceAtLeast(6f).sp, fontWeight = FontWeight.Black)
+            Text(
+                exit.toString(),
+                color = HudText,
+                fontSize = (iconSize * .17f).coerceAtLeast(6f).sp,
+                fontWeight = FontWeight.Black,
+                fontFamily = numberFont,
+            )
         }
     }
 }
@@ -565,13 +712,22 @@ private fun AlertRail(alerts: List<HudAlert>, config: HudElementConfig) {
 
 @Composable
 private fun AlertBadge(alert: HudAlert, iconSize: Float) {
-    val bitmap = rememberAssetBitmap(alertAsset(alert))
+    val generatedSpeedSign = alert.type == 8 && alert.value != null
+    val bitmap = rememberAssetBitmap(if (generatedSpeedSign) null else alertAsset(alert))
+    val numberFont = rememberHudNumberFont()
+    val textFont = rememberHudTextFont()
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             modifier = Modifier.size(iconSize.dp).clip(CircleShape).background(Color(0xFF202733)),
             contentAlignment = Alignment.Center,
         ) {
-            if (bitmap != null) {
+            if (generatedSpeedSign) {
+                GeneratedSpeedLimitSign(
+                    limit = alert.value,
+                    fontSizeSp = (iconSize * .70f).coerceAtLeast(9f),
+                    modifier = Modifier.size((iconSize * .90f).dp),
+                )
+            } else if (bitmap != null) {
                 Image(
                     bitmap = bitmap,
                     contentDescription = "Alert ${alert.type}",
@@ -585,10 +741,15 @@ private fun AlertBadge(alert: HudAlert, iconSize: Float) {
                     modifier = Modifier.size((iconSize * .62f).dp),
                 )
             }
-            val valueIsEmbeddedInAsset = bitmap != null && alert.type == 8
-            if (!valueIsEmbeddedInAsset) {
+            if (!generatedSpeedSign) {
                 alert.value?.let {
-                    Text(it.toString(), color = HudText, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                    Text(
+                        it.toString(),
+                        color = HudText,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        fontFamily = numberFont,
+                    )
                 }
             }
         }
@@ -597,6 +758,7 @@ private fun AlertBadge(alert: HudAlert, iconSize: Float) {
             color = HudText,
             fontSize = (iconSize * .24f).coerceIn(5f, 13f).sp,
             fontWeight = FontWeight.Bold,
+            fontFamily = textFont,
         )
     }
 }
@@ -707,7 +869,9 @@ private fun OverspeedVignette() {
 
 private fun widgetDescription(type: HudWidgetType, state: HudState): String = when (type) {
     HudWidgetType.SPEED -> "Current speed ${state.speed ?: 0} kilometers per hour"
+    HudWidgetType.SPEED_NUMBER -> "Current speed number ${state.speed ?: 0}"
     HudWidgetType.SPEED_LIMIT -> "Speed limit ${state.speedLimit ?: "unknown"}"
+    HudWidgetType.SPEED_LIMIT_BAR -> "Current speed ${state.speed ?: 0} toward speed limit ${state.speedLimit ?: "unknown"}"
     HudWidgetType.TURN -> "Next maneuver ${state.turn.name}"
     HudWidgetType.NEXT_TURN -> "Following maneuver ${state.nextTurn.name}"
     HudWidgetType.DISTANCE -> "Maneuver distance ${formatDistance(state.distanceMeters)}"
@@ -719,11 +883,13 @@ private fun widgetDescription(type: HudWidgetType, state: HudState): String = wh
     HudWidgetType.CONNECTION -> if (state.connected) "Bluetooth connected" else "Bluetooth disconnected"
     HudWidgetType.ALERTS -> "${state.alerts.size} upcoming alerts"
     HudWidgetType.LANES -> "Lane guidance, ${state.lanes.size} lanes"
+    HudWidgetType.TRAFFIC_DELAY -> "Traffic delay ${state.trafficDelayMinutes ?: 0} minutes"
 }
 
 private fun shouldRenderWidget(type: HudWidgetType, state: HudState): Boolean = when (type) {
-    HudWidgetType.SPEED, HudWidgetType.SPEED_LIMIT,
+    HudWidgetType.SPEED, HudWidgetType.SPEED_NUMBER, HudWidgetType.SPEED_LIMIT,
     HudWidgetType.GPS, HudWidgetType.CONNECTION -> true
+    HudWidgetType.SPEED_LIMIT_BAR -> state.speedLimit != null
     HudWidgetType.TURN -> state.turn != TurnType.NONE
     HudWidgetType.NEXT_TURN -> state.nextTurn != TurnType.NONE
     HudWidgetType.DISTANCE -> state.turn != TurnType.NONE && state.distanceMeters != null
@@ -733,6 +899,7 @@ private fun shouldRenderWidget(type: HudWidgetType, state: HudState): Boolean = 
     HudWidgetType.REMAINING -> state.remainingMeters != null || state.remainingKm != null || state.remainingMinutes != null
     HudWidgetType.ALERTS -> state.alerts.isNotEmpty()
     HudWidgetType.LANES -> state.lanes.isNotEmpty()
+    HudWidgetType.TRAFFIC_DELAY -> (state.trafficDelayMinutes ?: 0) > 0
 }
 
 private fun formatDistance(meters: Int?): String = when {
@@ -799,7 +966,7 @@ private fun alertAsset(alert: HudAlert): String? {
         5 -> "bigpin_accident.png"
         6 -> "bigpin_traffic_${alert.severity?.coerceIn(1, 4) ?: 1}.png"
         7, 38 -> "bigpin_closure.png"
-        8 -> alert.value?.let { "bigpin_speed_limit_world_$it.png" } ?: "bigpin_speed_camera.png"
+        8 -> null
         9 -> "no_passing_in.png"
         10 -> "no_passing_out.png"
         11 -> "bigpin_railroad.png"
@@ -872,4 +1039,6 @@ val PreviewHudState = HudState(
     gpsAvailable = true,
     connected = true,
     alerts = listOf(HudAlert(2, 300), HudAlert(8, 800, 60)),
+    trafficDelayMinutes = 12,
+    trafficSeverity = 3,
 )

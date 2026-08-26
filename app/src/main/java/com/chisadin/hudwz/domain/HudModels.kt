@@ -60,6 +60,8 @@ data class HudState(
     val zoneRecommendedSpeed: Int? = null,
     val zoneProgress: Int? = null,
     val alerts: List<HudAlert> = emptyList(),
+    val trafficDelayMinutes: Int? = null,
+    val trafficSeverity: Int? = null,
     val connected: Boolean = false,
     val sessionId: Long? = null,
     val sourceTimestampMs: Long = 0,
@@ -68,8 +70,9 @@ data class HudState(
 
 @Serializable
 enum class HudWidgetType {
-    SPEED, SPEED_LIMIT, TURN, NEXT_TURN, DISTANCE, STREET, NEXT_STREET,
-    ETA, REMAINING, GPS, CONNECTION, ALERTS, LANES
+    SPEED, SPEED_NUMBER, SPEED_LIMIT, SPEED_LIMIT_BAR,
+    TURN, NEXT_TURN, DISTANCE, STREET, NEXT_STREET,
+    ETA, REMAINING, GPS, CONNECTION, ALERTS, LANES, TRAFFIC_DELAY
 }
 
 val HudWidgetType.locksAspectRatio: Boolean
@@ -144,7 +147,9 @@ fun defaultHudElement(
     )
     return when (type) {
         HudWidgetType.SPEED -> base.copy(widthDp = 130f, heightDp = 130f, fontSizeSp = 44f)
+        HudWidgetType.SPEED_NUMBER -> base.copy(widthDp = 130f, heightDp = 90f, fontSizeSp = 72f)
         HudWidgetType.SPEED_LIMIT -> base.copy(widthDp = 120f, heightDp = 120f, fontSizeSp = 46f, iconSizeDp = 108f)
+        HudWidgetType.SPEED_LIMIT_BAR -> base.copy(widthDp = 220f, heightDp = 24f, fontSizeSp = 12f)
         HudWidgetType.TURN -> base.copy(widthDp = 120f, heightDp = 120f, iconSizeDp = 108f)
         HudWidgetType.NEXT_TURN -> base.copy(widthDp = 76f, heightDp = 76f, iconSizeDp = 68f)
         HudWidgetType.DISTANCE -> base.copy(widthDp = 140f, heightDp = 44f, fontSizeSp = 27f)
@@ -154,6 +159,7 @@ fun defaultHudElement(
         HudWidgetType.GPS, HudWidgetType.CONNECTION -> base.copy(widthDp = 120f, heightDp = 38f, iconSizeDp = 21f, fontSizeSp = 12f)
         HudWidgetType.ALERTS -> base.copy(widthDp = 92f, heightDp = 196f, iconSizeDp = 48f, orientation = HudElementOrientation.VERTICAL)
         HudWidgetType.LANES -> base.copy(widthDp = 250f, heightDp = 54f, iconSizeDp = 24f)
+        HudWidgetType.TRAFFIC_DELAY -> base.copy(widthDp = 176f, heightDp = 62f, iconSizeDp = 46f, fontSizeSp = 22f)
     }
 }
 

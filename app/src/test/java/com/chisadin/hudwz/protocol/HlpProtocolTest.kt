@@ -46,4 +46,26 @@ class HlpProtocolTest {
         assertTrue(text.contains("\"alrs\""))
         assertTrue(text.contains("\"lan\""))
     }
+
+    @Test
+    fun parsesTrafficSeverityAndExplicitDelayMinutes() {
+        val message = protocol.parse(
+            """{"v":1,"t":"s","spd":32,"lim":50,"alr":6,"alrD":120,"alrS":3,"alrM":12,"ts":77}""",
+            receivedAtElapsedMs = 200,
+        ) as HlpProtocol.Message.State
+        assertEquals(12, message.value.trafficDelayMinutes)
+        assertEquals(3, message.value.trafficSeverity)
+        assertEquals(6, message.value.alerts.single().type)
+        assertEquals(12, message.value.alerts.single().delayMinutes)
+    }
+
+    @Test
+    fun parsesTrafficDelayFromAlertArray() {
+        val message = protocol.parse(
+            """{"v":1,"t":"s","alrs":[{"k":6,"d":240,"s":4,"m":18}],"ts":78}""",
+            receivedAtElapsedMs = 201,
+        ) as HlpProtocol.Message.State
+        assertEquals(18, message.value.trafficDelayMinutes)
+        assertEquals(4, message.value.trafficSeverity)
+    }
 }

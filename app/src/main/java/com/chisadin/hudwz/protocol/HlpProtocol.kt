@@ -103,6 +103,7 @@ class HlpProtocol(private val json: Json = Json { ignoreUnknownKeys = true }) {
         val remainingMeters = root.int("rm")
             ?: remainingKm?.let { (it * 1000.0).toInt() }
         val alerts = parseAlerts(root)
+        val trafficAlert = alerts.firstOrNull { it.type == 6 }
         return HudState(
             navigating = root.bool("nav") ?: (root.int("nav") == 1),
             speed = speed?.coerceAtLeast(0),
@@ -125,6 +126,10 @@ class HlpProtocol(private val json: Json = Json { ignoreUnknownKeys = true }) {
             zoneRecommendedSpeed = root.int("avgR")?.takeIf { it > 0 },
             zoneProgress = root.int("avgP")?.coerceIn(0, 100),
             alerts = alerts,
+            trafficDelayMinutes = (root.int("trafficDelayMinutes") ?: trafficAlert?.delayMinutes)
+                ?.takeIf { it >= 0 },
+            trafficSeverity = (root.int("trafficSeverity") ?: trafficAlert?.severity)
+                ?.coerceIn(1, 5),
             connected = true,
             sessionId = sessionId,
             sourceTimestampMs = root.long("ts") ?: 0,

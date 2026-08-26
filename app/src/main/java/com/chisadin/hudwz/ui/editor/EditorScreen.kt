@@ -699,7 +699,9 @@ private data class LibraryDrag(val type: HudWidgetType, val position: Offset)
 
 private fun widgetLabel(type: HudWidgetType): String = when (type) {
     HudWidgetType.SPEED -> "Current speed"
+    HudWidgetType.SPEED_NUMBER -> "Speed number"
     HudWidgetType.SPEED_LIMIT -> "Speed limit"
+    HudWidgetType.SPEED_LIMIT_BAR -> "Speed → limit bar"
     HudWidgetType.TURN -> "Next maneuver"
     HudWidgetType.NEXT_TURN -> "Second maneuver"
     HudWidgetType.DISTANCE -> "Turn distance"
@@ -711,14 +713,17 @@ private fun widgetLabel(type: HudWidgetType): String = when (type) {
     HudWidgetType.CONNECTION -> "Bluetooth status"
     HudWidgetType.ALERTS -> "Upcoming alerts"
     HudWidgetType.LANES -> "Lane guidance"
+    HudWidgetType.TRAFFIC_DELAY -> "Traffic delay"
 }
 
 private fun widgetHint(type: HudWidgetType): String = when (type) {
-    HudWidgetType.SPEED, HudWidgetType.SPEED_LIMIT -> "Vehicle"
+    HudWidgetType.SPEED, HudWidgetType.SPEED_NUMBER,
+    HudWidgetType.SPEED_LIMIT, HudWidgetType.SPEED_LIMIT_BAR -> "Vehicle"
     HudWidgetType.TURN, HudWidgetType.NEXT_TURN, HudWidgetType.DISTANCE, HudWidgetType.LANES -> "Navigation"
     HudWidgetType.STREET, HudWidgetType.NEXT_STREET, HudWidgetType.ETA, HudWidgetType.REMAINING -> "Route"
     HudWidgetType.GPS, HudWidgetType.CONNECTION -> "Status"
     HudWidgetType.ALERTS -> "Warnings"
+    HudWidgetType.TRAFFIC_DELAY -> "Traffic"
 }
 
 private fun shortEnum(name: String): String = when (name) {
