@@ -113,6 +113,7 @@ fun HudApp(
                     onRename = viewModel::renameProfile,
                     onDelete = viewModel::deleteProfile,
                     onEdit = { navController.navigate("editor") },
+                    onUpdateOrientationMode = viewModel::updateProfileOrientationMode,
                 )
             }
             composable(AppRoute.SETTINGS.route) {
@@ -139,6 +140,7 @@ fun HudApp(
                     onAddElement = { type, x, y, isPortrait -> viewModel.addElement(activeProfile.id, type, x, y, isPortrait) },
                     onRemoveElement = { id, isPortrait -> viewModel.removeElement(activeProfile.id, id, isPortrait) },
                     onMoveElement = { id, move, isPortrait -> viewModel.moveElement(activeProfile.id, id, move, isPortrait) },
+                    onUpdateOrientationMode = { mode -> viewModel.updateProfileOrientationMode(activeProfile.id, mode) },
                 )
             }
             composable("hud") {

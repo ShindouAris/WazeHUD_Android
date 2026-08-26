@@ -92,4 +92,40 @@ class HudLayerTest {
         assertEquals(HudWidgetType.CONNECTION, migrated.elements.single().type)
         assertTrue(migrated.portraitElements.isNotEmpty())
     }
+
+    @Test
+    fun autoDetectsProfileOrientationMode() {
+        val landscapeOnly = HudProfile(
+            id = "land",
+            name = "Landscape Only",
+            elements = listOf(defaultHudElement(HudWidgetType.SPEED, "s")),
+            portraitElements = emptyList(),
+        )
+        assertEquals(HudProfileOrientationMode.LANDSCAPE_ONLY, landscapeOnly.effectiveOrientationMode)
+        assertTrue(landscapeOnly.isLandscapeOnly)
+        assertFalse(landscapeOnly.isPortraitOnly)
+
+        val portraitOnly = HudProfile(
+            id = "port",
+            name = "Portrait Only",
+            elements = emptyList(),
+            portraitElements = listOf(defaultHudElement(HudWidgetType.SPEED, "s")),
+        )
+        assertEquals(HudProfileOrientationMode.PORTRAIT_ONLY, portraitOnly.effectiveOrientationMode)
+        assertTrue(portraitOnly.isPortraitOnly)
+        assertFalse(portraitOnly.isLandscapeOnly)
+
+        val both = HudProfile(
+            id = "both",
+            name = "Both",
+            elements = listOf(defaultHudElement(HudWidgetType.SPEED, "s1")),
+            portraitElements = listOf(defaultHudElement(HudWidgetType.SPEED, "s2")),
+        )
+        assertEquals(HudProfileOrientationMode.BOTH, both.effectiveOrientationMode)
+        assertTrue(both.supportsBoth)
+
+        val explicitPortrait = both.copy(orientationMode = HudProfileOrientationMode.PORTRAIT_ONLY)
+        assertEquals(HudProfileOrientationMode.PORTRAIT_ONLY, explicitPortrait.effectiveOrientationMode)
+        assertTrue(explicitPortrait.isPortraitOnly)
+    }
 }

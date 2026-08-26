@@ -16,6 +16,8 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.chisadin.hudwz.domain.HudOrientation
+import com.chisadin.hudwz.domain.HudProfile
+import com.chisadin.hudwz.domain.HudProfileOrientationMode
 import com.chisadin.hudwz.domain.HudSettings
 import com.chisadin.hudwz.domain.HudThemeMode
 import com.chisadin.hudwz.ui.HudApp
@@ -31,14 +33,10 @@ class MainActivity : ComponentActivity() {
         setContent {
             val viewModel: HudViewModel = viewModel()
             val settings by viewModel.settings.collectAsStateWithLifecycle()
-            val darkTheme = when (settings.themeMode) {
-                HudThemeMode.DAY -> false
-                HudThemeMode.NIGHT -> true
-                HudThemeMode.SYSTEM -> androidx.compose.foundation.isSystemInDarkTheme()
-            }
-            HudwzTheme(darkTheme = darkTheme) {
+            val activeProfile by viewModel.activeProfile.collectAsStateWithLifecycle()
+            HudwzTheme(darkTheme = settings.themeMode != HudThemeMode.DAY) {
                 HudApp(viewModel) { hudActive, editorActive ->
-                    ApplyWindowBehavior(hudActive, editorActive, settings)
+                    ApplyWindowBehavior(hudActive, editorActive, settings, activeProfile)
                 }
             }
         }
@@ -55,17 +53,35 @@ private fun ComponentActivity.ApplyWindowBehavior(
     hudActive: Boolean,
     editorActive: Boolean,
     settings: HudSettings,
+    activeProfile: HudProfile?,
 ) {
     val view = LocalView.current
-    DisposableEffect(hudActive, editorActive, settings.keepScreenAwake, settings.immersiveMode, settings.brightness, settings.orientation) {
+    DisposableEffect(
+        hudActive,
+        editorActive,
+        settings.keepScreenAwake,
+        settings.immersiveMode,
+        settings.brightness,
+        settings.orientation,
+        activeProfile?.orientationMode,
+        activeProfile?.effectiveOrientationMode,
+    ) {
         val controller = WindowCompat.getInsetsController(window, view)
         if (hudActive) {
             if (settings.keepScreenAwake) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            requestedOrientation = when (settings.orientation) {
-                HudOrientation.SENSOR -> ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
-                HudOrientation.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                HudOrientation.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            requestedOrientation = when {
+                activeProfile?.effectiveOrientationMode == HudProfileOrientationMode.PORTRAIT_ONLY -> {
+                    ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                }
+                activeProfile?.effectiveOrientationMode == HudProfileOrientationMode.LANDSCAPE_ONLY -> {
+                    ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                }
+                else -> when (settings.orientation) {
+                    HudOrientation.SENSOR -> ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+                    HudOrientation.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                    HudOrientation.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                }
             }
             if (settings.immersiveMode) {
                 controller.hide(WindowInsetsCompat.Type.systemBars())

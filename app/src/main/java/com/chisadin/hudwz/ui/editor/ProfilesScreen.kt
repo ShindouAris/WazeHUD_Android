@@ -34,7 +34,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.AssistChip
+import androidx.compose.ui.unit.sp
 import com.chisadin.hudwz.domain.HudProfile
+import com.chisadin.hudwz.domain.HudProfileOrientationMode
 
 @Composable
 fun ProfilesScreen(
@@ -46,13 +50,14 @@ fun ProfilesScreen(
     onRename: (String, String) -> Unit,
     onDelete: (String) -> Unit,
     onEdit: () -> Unit,
+    onUpdateOrientationMode: ((String, HudProfileOrientationMode) -> Unit)? = null,
 ) {
     var dialog by remember { mutableStateOf<ProfileDialog?>(null) }
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Hồ sơ HUD", style = MaterialTheme.typography.headlineLarge)
-                Text("Chọn một bố cục rồi mở Trình chỉnh sửa HUD ngang.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Chọn một bố cục rồi mở Trình chỉnh sửa HUD.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Button(onClick = { dialog = ProfileDialog.Create }) {
                 Icon(Icons.Rounded.Add, contentDescription = null)
@@ -67,8 +72,42 @@ fun ProfilesScreen(
                         Column(Modifier.weight(1f)) {
                             val visibleLandscape = profile.elements.count { it.visible }
                             val visiblePortrait = profile.elementsFor(true).count { it.visible }
-                            Text(profile.name, style = MaterialTheme.typography.titleLarge)
-                            Text("Ngang: $visibleLandscape · Dọc: $visiblePortrait widget hiện · tỷ lệ ${"%.0f".format(profile.hudScale * 100)}%")
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(profile.name, style = MaterialTheme.typography.titleLarge)
+                                AssistChip(
+                                    onClick = {
+                                        if (onUpdateOrientationMode != null) {
+                                            val next = when (profile.orientationMode) {
+                                                HudProfileOrientationMode.AUTO -> HudProfileOrientationMode.BOTH
+                                                HudProfileOrientationMode.BOTH -> HudProfileOrientationMode.PORTRAIT_ONLY
+                                                HudProfileOrientationMode.PORTRAIT_ONLY -> HudProfileOrientationMode.LANDSCAPE_ONLY
+                                                HudProfileOrientationMode.LANDSCAPE_ONLY -> HudProfileOrientationMode.AUTO
+                                            }
+                                            onUpdateOrientationMode(profile.id, next)
+                                        }
+                                    },
+                                    label = {
+                                        Text(
+                                            when (profile.effectiveOrientationMode) {
+                                                HudProfileOrientationMode.PORTRAIT_ONLY -> "📱 Chỉ dọc"
+                                                HudProfileOrientationMode.LANDSCAPE_ONLY -> "🖥️ Chỉ ngang"
+                                                else -> "🔀 Cả 2 chiều"
+                                            },
+                                            fontSize = 9.sp,
+                                        )
+                                    },
+                                    modifier = Modifier.height(24.dp),
+                                )
+                            }
+                            Text(
+                                when (profile.effectiveOrientationMode) {
+                                    HudProfileOrientationMode.PORTRAIT_ONLY -> "Chỉ dọc · $visiblePortrait widget hiện · tỷ lệ ${"%.0f".format(profile.hudScale * 100)}%"
+                                    HudProfileOrientationMode.LANDSCAPE_ONLY -> "Chỉ ngang · $visibleLandscape widget hiện · tỷ lệ ${"%.0f".format(profile.hudScale * 100)}%"
+                                    else -> "Ngang: $visibleLandscape · Dọc: $visiblePortrait widget · tỷ lệ ${"%.0f".format(profile.hudScale * 100)}%"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                         IconButton(
                             onClick = { dialog = ProfileDialog.Rename(profile) },

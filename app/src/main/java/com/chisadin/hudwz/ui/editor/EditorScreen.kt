@@ -95,6 +95,7 @@ import com.chisadin.hudwz.domain.HudElementConfig
 import com.chisadin.hudwz.domain.HudElementOrientation
 import com.chisadin.hudwz.domain.HudFontWeight
 import com.chisadin.hudwz.domain.HudProfile
+import com.chisadin.hudwz.domain.HudProfileOrientationMode
 import com.chisadin.hudwz.domain.HudTextAlignment
 import com.chisadin.hudwz.domain.HudWidgetType
 import com.chisadin.hudwz.domain.HudState
@@ -122,11 +123,14 @@ fun EditorScreen(
     onAddElement: (HudWidgetType, Float, Float, Boolean) -> HudElementConfig,
     onRemoveElement: (String, Boolean) -> Unit,
     onMoveElement: (String, HudLayerMove, Boolean) -> Unit,
+    onUpdateOrientationMode: ((HudProfileOrientationMode) -> Unit)? = null,
 ) {
     val density = LocalDensity.current
     val context = LocalContext.current
     val activity = context as? Activity
-    var isPortraitMode by rememberSaveable { mutableStateOf(false) }
+    var isPortraitMode by rememberSaveable(profile.id) {
+        mutableStateOf(profile.effectiveOrientationMode == HudProfileOrientationMode.PORTRAIT_ONLY)
+    }
 
     LaunchedEffect(isPortraitMode) {
         activity?.requestedOrientation = if (isPortraitMode) {
@@ -310,10 +314,18 @@ fun EditorScreen(
                 Icon(Icons.Rounded.Widgets, contentDescription = null)
             }
             FloatingEditorButton(
-                if (isPortraitMode) "Đang chỉnh: Bố cục Dọc" else "Đang chỉnh: Bố cục Ngang",
+                when {
+                    workingProfile.effectiveOrientationMode == HudProfileOrientationMode.PORTRAIT_ONLY -> "Định hướng: Chỉ dọc (Cố định)"
+                    workingProfile.effectiveOrientationMode == HudProfileOrientationMode.LANDSCAPE_ONLY -> "Định hướng: Chỉ ngang (Cố định)"
+                    isPortraitMode -> "Đang chỉnh: Bố cục Dọc (Chạm để đổi)"
+                    else -> "Đang chỉnh: Bố cục Ngang (Chạm để đổi)"
+                },
                 {
-                    isPortraitMode = !isPortraitMode
-                    selectedId = null
+                    if (workingProfile.effectiveOrientationMode != HudProfileOrientationMode.PORTRAIT_ONLY &&
+                        workingProfile.effectiveOrientationMode != HudProfileOrientationMode.LANDSCAPE_ONLY) {
+                        isPortraitMode = !isPortraitMode
+                        selectedId = null
+                    }
                 },
                 active = isPortraitMode,
             ) {
@@ -381,7 +393,7 @@ fun EditorScreen(
 
         if (settingsOpen) {
             EditorSettingsPanel(
-                profileName = workingProfile.name,
+                profile = workingProfile,
                 scale = workingProfile.hudScale,
                 showInactiveItems = showInactiveItems,
                 modifier = Modifier.align(Alignment.TopEnd).padding(top = 62.dp).width(270.dp).zIndex(5f),
@@ -390,6 +402,12 @@ fun EditorScreen(
                     onScaleChange(it)
                 },
                 onShowInactiveChange = { showInactiveItems = it },
+                onOrientationModeChange = { mode ->
+                    workingProfile = workingProfile.copy(orientationMode = mode)
+                    if (mode == HudProfileOrientationMode.PORTRAIT_ONLY) isPortraitMode = true
+                    else if (mode == HudProfileOrientationMode.LANDSCAPE_ONLY) isPortraitMode = false
+                    onUpdateOrientationMode?.invoke(mode)
+                },
                 onClose = { settingsOpen = false },
             )
         }
@@ -727,12 +745,13 @@ private fun InspectorPanel(
 
 @Composable
 private fun EditorSettingsPanel(
-    profileName: String,
+    profile: HudProfile,
     scale: Float,
     showInactiveItems: Boolean,
     modifier: Modifier,
     onScaleChange: (Float) -> Unit,
     onShowInactiveChange: (Boolean) -> Unit,
+    onOrientationModeChange: (HudProfileOrientationMode) -> Unit,
     onClose: () -> Unit,
 ) {
     Surface(
@@ -746,10 +765,42 @@ private fun EditorSettingsPanel(
                 Icon(Icons.Rounded.Settings, contentDescription = null, tint = HudCyan)
                 Column(Modifier.weight(1f).padding(start = 8.dp)) {
                     Text("Cài đặt HUD", fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                    Text(profileName, fontSize = 10.sp, color = HudCyan)
+                    Text(profile.name, fontSize = 10.sp, color = HudCyan)
                 }
                 IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, contentDescription = "Đóng cài đặt HUD") }
             }
+            HorizontalDivider(color = HudOutline)
+            Text("Định hướng giao diện", fontSize = 12.sp)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                HudProfileOrientationMode.entries.forEach { mode ->
+                    val selected = profile.orientationMode == mode
+                    FilterChip(
+                        selected = selected,
+                        onClick = { onOrientationModeChange(mode) },
+                        label = {
+                            Text(
+                                when (mode) {
+                                    HudProfileOrientationMode.AUTO -> "Tự động"
+                                    HudProfileOrientationMode.BOTH -> "Cả 2"
+                                    HudProfileOrientationMode.PORTRAIT_ONLY -> "Chỉ dọc"
+                                    HudProfileOrientationMode.LANDSCAPE_ONLY -> "Chỉ ngang"
+                                },
+                                fontSize = 9.sp,
+                            )
+                        },
+                    )
+                }
+            }
+            Text(
+                when (profile.effectiveOrientationMode) {
+                    HudProfileOrientationMode.PORTRAIT_ONLY -> "Hồ sơ này là giao diện Dọc. HUD sẽ tự động khóa xoay dọc."
+                    HudProfileOrientationMode.LANDSCAPE_ONLY -> "Hồ sơ này là giao diện Ngang. HUD sẽ tự động khóa xoay ngang."
+                    HudProfileOrientationMode.BOTH -> "Hồ sơ này hỗ trợ cả Ngang và Dọc. HUD sẽ tự xoay linh hoạt theo cảm biến."
+                    HudProfileOrientationMode.AUTO -> "Đang tự nhận diện loại UI dựa trên các widget."
+                },
+                fontSize = 10.sp,
+                color = HudCyan,
+            )
             HorizontalDivider(color = HudOutline)
             Text("Tỷ lệ xem trước", fontSize = 12.sp)
             Text("${(scale * 100).roundToInt()}%", fontSize = 22.sp, color = HudCyan)

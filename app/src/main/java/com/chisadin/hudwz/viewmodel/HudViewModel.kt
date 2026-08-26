@@ -9,6 +9,7 @@ import com.chisadin.hudwz.bluetooth.BluetoothDeviceScanner
 import com.chisadin.hudwz.domain.BluetoothDeviceInfo
 import com.chisadin.hudwz.domain.HudElementConfig
 import com.chisadin.hudwz.domain.HudProfile
+import com.chisadin.hudwz.domain.HudProfileOrientationMode
 import com.chisadin.hudwz.domain.HudSettings
 import com.chisadin.hudwz.domain.TransportType
 import com.chisadin.hudwz.domain.HudWidgetType
@@ -165,6 +166,10 @@ class HudViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateProfileScale(profileId: String, scale: Float) {
         scaleUpdates.tryEmit(profileId to scale)
+    }
+
+    fun updateProfileOrientationMode(profileId: String, mode: HudProfileOrientationMode) {
+        viewModelScope.launch { profileRepository.updateOrientationMode(profileId, mode) }
     }
 
     fun addElement(profileId: String, type: HudWidgetType, x: Float, y: Float, isPortrait: Boolean = false): HudElementConfig {

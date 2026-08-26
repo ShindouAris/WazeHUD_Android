@@ -171,6 +171,14 @@ fun defaultHudElement(
 }
 
 @Serializable
+enum class HudProfileOrientationMode {
+    AUTO,            // Tự động nhận diện
+    BOTH,            // Hỗ trợ cả ngang và dọc
+    PORTRAIT_ONLY,   // Chỉ dọc
+    LANDSCAPE_ONLY,  // Chỉ ngang
+}
+
+@Serializable
 data class HudProfile(
     val id: String,
     val name: String,
@@ -178,13 +186,38 @@ data class HudProfile(
     val layoutVersion: Int = 4,
     val elements: List<HudElementConfig>,
     val portraitElements: List<HudElementConfig> = emptyList(),
+    val orientationMode: HudProfileOrientationMode = HudProfileOrientationMode.AUTO,
 ) {
-    fun elementsFor(isPortrait: Boolean): List<HudElementConfig> =
-        if (isPortrait) {
+    val effectiveOrientationMode: HudProfileOrientationMode
+        get() = when (orientationMode) {
+            HudProfileOrientationMode.BOTH -> HudProfileOrientationMode.BOTH
+            HudProfileOrientationMode.PORTRAIT_ONLY -> HudProfileOrientationMode.PORTRAIT_ONLY
+            HudProfileOrientationMode.LANDSCAPE_ONLY -> HudProfileOrientationMode.LANDSCAPE_ONLY
+            HudProfileOrientationMode.AUTO -> {
+                val hasLandscape = elements.isNotEmpty() && elements.any { it.visible }
+                val hasPortrait = portraitElements.isNotEmpty() && portraitElements.any { it.visible }
+                when {
+                    hasLandscape && hasPortrait -> HudProfileOrientationMode.BOTH
+                    hasPortrait && !hasLandscape -> HudProfileOrientationMode.PORTRAIT_ONLY
+                    hasLandscape && !hasPortrait -> HudProfileOrientationMode.LANDSCAPE_ONLY
+                    else -> HudProfileOrientationMode.BOTH
+                }
+            }
+        }
+
+    val isPortraitOnly: Boolean get() = effectiveOrientationMode == HudProfileOrientationMode.PORTRAIT_ONLY
+    val isLandscapeOnly: Boolean get() = effectiveOrientationMode == HudProfileOrientationMode.LANDSCAPE_ONLY
+    val supportsBoth: Boolean get() = effectiveOrientationMode == HudProfileOrientationMode.BOTH
+
+    fun elementsFor(isPortrait: Boolean): List<HudElementConfig> = when (effectiveOrientationMode) {
+        HudProfileOrientationMode.PORTRAIT_ONLY -> if (portraitElements.isNotEmpty()) portraitElements else defaultPortraitElementsFor(this)
+        HudProfileOrientationMode.LANDSCAPE_ONLY -> elements
+        else -> if (isPortrait) {
             if (portraitElements.isNotEmpty()) portraitElements else defaultPortraitElementsFor(this)
         } else {
             elements
         }
+    }
 
     companion object {
         fun defaultProfile() = HudProfile(

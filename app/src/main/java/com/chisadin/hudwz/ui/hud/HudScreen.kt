@@ -39,6 +39,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.chisadin.hudwz.domain.HudOrientation
 import com.chisadin.hudwz.domain.HudProfile
+import com.chisadin.hudwz.domain.HudProfileOrientationMode
 import com.chisadin.hudwz.domain.HudSettings
 import com.chisadin.hudwz.domain.HudState
 
@@ -61,10 +62,14 @@ fun HudScreen(
             .background(Color.Black)
             .windowInsetsPadding(WindowInsets.displayCutout),
     ) {
-        val forcePortrait = when (settings.orientation) {
-            HudOrientation.PORTRAIT -> true
-            HudOrientation.LANDSCAPE -> false
-            HudOrientation.SENSOR -> null
+        val forcePortrait = when (profile.effectiveOrientationMode) {
+            HudProfileOrientationMode.PORTRAIT_ONLY -> true
+            HudProfileOrientationMode.LANDSCAPE_ONLY -> false
+            else -> when (settings.orientation) {
+                HudOrientation.PORTRAIT -> true
+                HudOrientation.LANDSCAPE -> false
+                HudOrientation.SENSOR -> null
+            }
         }
         HudRenderer(
             state = state,
@@ -79,10 +84,12 @@ fun HudScreen(
                 modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
             ) {
                 HudControlButton(
-                    label = when (settings.orientation) {
-                        HudOrientation.SENSOR -> "Xoay HUD: Theo cảm biến (Chạm để đổi)"
-                        HudOrientation.PORTRAIT -> "Xoay HUD: Dọc cố định (Chạm để đổi)"
-                        HudOrientation.LANDSCAPE -> "Xoay HUD: Ngang cố định (Chạm để đổi)"
+                    label = when {
+                        profile.effectiveOrientationMode == HudProfileOrientationMode.PORTRAIT_ONLY -> "Giao diện: Chỉ dọc (Cố định theo hồ sơ)"
+                        profile.effectiveOrientationMode == HudProfileOrientationMode.LANDSCAPE_ONLY -> "Giao diện: Chỉ ngang (Cố định theo hồ sơ)"
+                        settings.orientation == HudOrientation.SENSOR -> "Xoay HUD: Cả ngang & dọc (Theo cảm biến)"
+                        settings.orientation == HudOrientation.PORTRAIT -> "Xoay HUD: Dọc (Chạm để đổi)"
+                        else -> "Xoay HUD: Ngang (Chạm để đổi)"
                     },
                     onClick = {
                         val next = when (settings.orientation) {
@@ -94,10 +101,12 @@ fun HudScreen(
                     },
                 ) {
                     Icon(
-                        when (settings.orientation) {
-                            HudOrientation.SENSOR -> Icons.Rounded.ScreenRotation
-                            HudOrientation.PORTRAIT -> Icons.Rounded.StayCurrentPortrait
-                            HudOrientation.LANDSCAPE -> Icons.Rounded.StayCurrentLandscape
+                        when {
+                            profile.effectiveOrientationMode == HudProfileOrientationMode.PORTRAIT_ONLY -> Icons.Rounded.StayCurrentPortrait
+                            profile.effectiveOrientationMode == HudProfileOrientationMode.LANDSCAPE_ONLY -> Icons.Rounded.StayCurrentLandscape
+                            settings.orientation == HudOrientation.SENSOR -> Icons.Rounded.ScreenRotation
+                            settings.orientation == HudOrientation.PORTRAIT -> Icons.Rounded.StayCurrentPortrait
+                            else -> Icons.Rounded.StayCurrentLandscape
                         },
                         contentDescription = null,
                     )

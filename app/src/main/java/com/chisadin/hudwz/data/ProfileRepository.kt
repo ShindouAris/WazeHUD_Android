@@ -9,6 +9,7 @@ import com.chisadin.hudwz.domain.HudLayerMove
 import com.chisadin.hudwz.domain.reorderHudElements
 import com.chisadin.hudwz.domain.migrateHudProfile
 import com.chisadin.hudwz.domain.emptyHudProfile
+import com.chisadin.hudwz.domain.HudProfileOrientationMode
 import com.chisadin.hudwz.domain.defaultPortraitProfileElements
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -86,6 +87,10 @@ class ProfileRepository(
                 }
             }
         }
+    }
+
+    suspend fun updateOrientationMode(profileId: String, mode: HudProfileOrientationMode) = mutate { all ->
+        all.map { if (it.id == profileId) it.copy(orientationMode = mode) else it }
     }
 
     suspend fun addElement(profileId: String, element: HudElementConfig, isPortrait: Boolean = false) = mutate { all ->
