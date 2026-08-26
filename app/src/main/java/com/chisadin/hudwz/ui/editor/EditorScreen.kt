@@ -33,22 +33,36 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.FormatAlignLeft
+import androidx.compose.material.icons.automirrored.rounded.FormatAlignRight
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.rounded.Redo
+import androidx.compose.material.icons.automirrored.rounded.Undo
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AlignHorizontalCenter
+import androidx.compose.material.icons.rounded.AlignVerticalCenter
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DragIndicator
+import androidx.compose.material.icons.rounded.Fullscreen
+import androidx.compose.material.icons.rounded.FullscreenExit
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.StayCurrentLandscape
 import androidx.compose.material.icons.rounded.StayCurrentPortrait
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.VerticalAlignBottom
+import androidx.compose.material.icons.rounded.VerticalAlignTop
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material.icons.rounded.Widgets
+import java.util.UUID
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
@@ -113,6 +127,10 @@ import com.chisadin.hudwz.ui.theme.HudSurface
 import com.chisadin.hudwz.ui.theme.HudSurfaceHigh
 import kotlin.math.roundToInt
 
+enum class AlignmentAction {
+    CENTER_HORIZONTAL, CENTER_VERTICAL, ALIGN_LEFT, ALIGN_RIGHT, ALIGN_TOP, ALIGN_BOTTOM
+}
+
 @Composable
 fun EditorScreen(
     profile: HudProfile,
@@ -156,6 +174,9 @@ fun EditorScreen(
     var showInactiveItems by remember { mutableStateOf(false) }
     var canvasBounds by remember { mutableStateOf(Rect.Zero) }
     var libraryDrag by remember { mutableStateOf<LibraryDrag?>(null) }
+    var zenMode by remember { mutableStateOf(false) }
+    var undoStack by remember(profile.id, isPortraitMode) { mutableStateOf<List<List<HudElementConfig>>>(emptyList()) }
+    var redoStack by remember(profile.id, isPortraitMode) { mutableStateOf<List<List<HudElementConfig>>>(emptyList()) }
 
     LaunchedEffect(profile.id, isPortraitMode) {
         selectedId = workingProfile.elementsFor(isPortraitMode).firstOrNull()?.id
@@ -172,6 +193,45 @@ fun EditorScreen(
     val currentElements = workingProfile.elementsFor(isPortraitMode)
     val selected = currentElements.firstOrNull { it.id == selectedId }
     val previewState = PreviewHudState
+
+    fun pushUndo(snapshot: List<HudElementConfig>) {
+        undoStack = (undoStack + listOf(snapshot)).takeLast(30)
+        redoStack = emptyList()
+    }
+
+    fun undo() {
+        val previous = undoStack.lastOrNull() ?: return
+        val current = workingProfile.elementsFor(isPortraitMode)
+        undoStack = undoStack.dropLast(1)
+        redoStack = (redoStack + listOf(current)).takeLast(30)
+        if (isPortraitMode) {
+            workingProfile = workingProfile.copy(portraitElements = previous)
+            previous.forEach { onElementChange(it, true) }
+        } else {
+            workingProfile = workingProfile.copy(elements = previous)
+            previous.forEach { onElementChange(it, false) }
+        }
+        if (selectedId != null && previous.none { it.id == selectedId }) {
+            selectedId = previous.firstOrNull()?.id
+        }
+    }
+
+    fun redo() {
+        val next = redoStack.lastOrNull() ?: return
+        val current = workingProfile.elementsFor(isPortraitMode)
+        redoStack = redoStack.dropLast(1)
+        undoStack = (undoStack + listOf(current)).takeLast(30)
+        if (isPortraitMode) {
+            workingProfile = workingProfile.copy(portraitElements = next)
+            next.forEach { onElementChange(it, true) }
+        } else {
+            workingProfile = workingProfile.copy(elements = next)
+            next.forEach { onElementChange(it, false) }
+        }
+        if (selectedId != null && next.none { it.id == selectedId }) {
+            selectedId = next.firstOrNull()?.id
+        }
+    }
 
     fun updateWorkingElement(next: HudElementConfig) {
         val canvasWidthDp = with(density) { canvasBounds.width.toDp().value }
@@ -200,18 +260,72 @@ fun EditorScreen(
         }
     }
 
+    fun duplicateWidget(target: HudElementConfig) {
+        val canvasWidthDp = with(density) { canvasBounds.width.toDp().value }
+        val canvasHeightDp = with(density) { canvasBounds.height.toDp().value }
+        val effectiveHeight = if (target.type.locksAspectRatio) target.widthDp else target.heightDp
+        val maxX = (canvasWidthDp - target.widthDp * target.scale * workingProfile.hudScale).coerceAtLeast(0f)
+        val maxY = (canvasHeightDp - effectiveHeight * target.scale * workingProfile.hudScale).coerceAtLeast(0f)
+        val cloned = target.copy(
+            id = UUID.randomUUID().toString(),
+            x = (target.x + 16f).coerceIn(0f, maxX),
+            y = (target.y + 16f).coerceIn(0f, maxY),
+            locked = false,
+        )
+        pushUndo(currentElements)
+        if (isPortraitMode) {
+            val list = workingProfile.elementsFor(true) + cloned
+            workingProfile = workingProfile.copy(portraitElements = list)
+            onElementChange(cloned, true)
+        } else {
+            val list = workingProfile.elements + cloned
+            workingProfile = workingProfile.copy(elements = list)
+            onElementChange(cloned, false)
+        }
+        selectedId = cloned.id
+        inspectorOpen = true
+    }
+
+    fun toggleLock(target: HudElementConfig) {
+        pushUndo(currentElements)
+        updateWorkingElement(target.copy(locked = !target.locked))
+    }
+
+    fun alignWidget(target: HudElementConfig, alignment: AlignmentAction) {
+        val canvasWidthDp = with(density) { canvasBounds.width.toDp().value }
+        val canvasHeightDp = with(density) { canvasBounds.height.toDp().value }
+        val widthDp = target.widthDp * target.scale * workingProfile.hudScale
+        val effectiveHeight = if (target.type.locksAspectRatio) target.widthDp else target.heightDp
+        val heightDp = effectiveHeight * target.scale * workingProfile.hudScale
+        val maxX = (canvasWidthDp - widthDp).coerceAtLeast(0f)
+        val maxY = (canvasHeightDp - heightDp).coerceAtLeast(0f)
+
+        pushUndo(currentElements)
+        val updated = when (alignment) {
+            AlignmentAction.CENTER_HORIZONTAL -> target.copy(x = ((canvasWidthDp - widthDp) / 2f).coerceIn(0f, maxX))
+            AlignmentAction.CENTER_VERTICAL -> target.copy(y = ((canvasHeightDp - heightDp) / 2f).coerceIn(0f, maxY))
+            AlignmentAction.ALIGN_LEFT -> target.copy(x = 16f.coerceIn(0f, maxX))
+            AlignmentAction.ALIGN_RIGHT -> target.copy(x = (canvasWidthDp - widthDp - 16f).coerceIn(0f, maxX))
+            AlignmentAction.ALIGN_TOP -> target.copy(y = 16f.coerceIn(0f, maxY))
+            AlignmentAction.ALIGN_BOTTOM -> target.copy(y = (canvasHeightDp - heightDp - 16f).coerceIn(0f, maxY))
+        }
+        updateWorkingElement(updated)
+    }
+
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             runCatching {
                 context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             selected?.takeIf { it.type == HudWidgetType.CUSTOM_IMAGE }?.let {
+                pushUndo(currentElements)
                 updateWorkingElement(it.copy(customImageUri = uri.toString()))
             }
         }
     }
 
     fun addWidget(type: HudWidgetType, centerX: Float, centerY: Float) {
+        pushUndo(currentElements)
         val prototype = defaultHudElement(type, "drop-preview")
         val x = (centerX - prototype.widthDp / 2f).coerceAtLeast(0f)
         val y = (centerY - prototype.heightDp / 2f).coerceAtLeast(0f)
@@ -229,6 +343,7 @@ fun EditorScreen(
     }
 
     fun removeWidget(id: String) {
+        pushUndo(currentElements)
         if (isPortraitMode) {
             val list = workingProfile.elementsFor(true).filterNot { it.id == id }
             workingProfile = workingProfile.copy(portraitElements = list)
@@ -243,6 +358,7 @@ fun EditorScreen(
     }
 
     fun moveWidget(id: String, move: HudLayerMove) {
+        pushUndo(currentElements)
         if (isPortraitMode) {
             val list = reorderHudElements(workingProfile.elementsFor(true), id, move)
             workingProfile = workingProfile.copy(portraitElements = list)
@@ -277,91 +393,157 @@ fun EditorScreen(
             state = previewState,
             fontScale = fontScale,
             showInactiveItems = showInactiveItems,
-            selectedId = selectedId,
+            selectedId = if (zenMode) null else selectedId,
             modifier = Modifier.fillMaxSize(),
             onCanvasBounds = { canvasBounds = it },
             onSelect = {
-                selectedId = it
-                inspectorOpen = true
-                libraryOpen = false
-                settingsOpen = false
+                if (zenMode) {
+                    zenMode = false
+                } else {
+                    selectedId = it
+                    inspectorOpen = true
+                    libraryOpen = false
+                    settingsOpen = false
+                }
             },
             onDoubleTap = {
-                selectedId = it
-                inspectorOpen = true
-                libraryOpen = false
-                settingsOpen = false
+                if (zenMode) {
+                    zenMode = false
+                } else {
+                    selectedId = it
+                    inspectorOpen = true
+                    libraryOpen = false
+                    settingsOpen = false
+                }
             },
             onClearFocus = {
-                selectedId = null
-                inspectorOpen = false
+                if (zenMode) {
+                    zenMode = false
+                } else {
+                    selectedId = null
+                    inspectorOpen = false
+                }
             },
+            onDragStart = { pushUndo(currentElements) },
             onElementChange = ::updateWorkingElement,
         )
 
-        Row(
-            Modifier.align(Alignment.TopStart).padding(8.dp).zIndex(10f),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            FloatingEditorButton("Quay lại", onBack) {
-                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null)
-            }
-            FloatingEditorButton("Thành phần", {
-                libraryOpen = !libraryOpen
-                inspectorOpen = false
-                settingsOpen = false
-            }, active = libraryOpen) {
-                Icon(Icons.Rounded.Widgets, contentDescription = null)
-            }
-            FloatingEditorButton(
-                when {
-                    workingProfile.effectiveOrientationMode == HudProfileOrientationMode.PORTRAIT_ONLY -> "Định hướng: Chỉ dọc (Cố định)"
-                    workingProfile.effectiveOrientationMode == HudProfileOrientationMode.LANDSCAPE_ONLY -> "Định hướng: Chỉ ngang (Cố định)"
-                    isPortraitMode -> "Đang chỉnh: Bố cục Dọc (Chạm để đổi)"
-                    else -> "Đang chỉnh: Bố cục Ngang (Chạm để đổi)"
-                },
-                {
-                    if (workingProfile.effectiveOrientationMode != HudProfileOrientationMode.PORTRAIT_ONLY &&
-                        workingProfile.effectiveOrientationMode != HudProfileOrientationMode.LANDSCAPE_ONLY) {
-                        isPortraitMode = !isPortraitMode
-                        selectedId = null
-                    }
-                },
-                active = isPortraitMode,
+        if (!zenMode) {
+            Row(
+                Modifier.align(Alignment.TopStart).padding(8.dp).zIndex(10f),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Icon(
-                    if (isPortraitMode) Icons.Rounded.StayCurrentPortrait else Icons.Rounded.StayCurrentLandscape,
-                    contentDescription = null,
-                )
+                FloatingEditorButton("Quay lại", onBack) {
+                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null)
+                }
+                FloatingEditorButton("Thành phần", {
+                    libraryOpen = !libraryOpen
+                    inspectorOpen = false
+                    settingsOpen = false
+                }, active = libraryOpen) {
+                    Icon(Icons.Rounded.Widgets, contentDescription = null)
+                }
+                FloatingEditorButton(
+                    when {
+                        workingProfile.effectiveOrientationMode == HudProfileOrientationMode.PORTRAIT_ONLY -> "Định hướng: Chỉ dọc (Cố định)"
+                        workingProfile.effectiveOrientationMode == HudProfileOrientationMode.LANDSCAPE_ONLY -> "Định hướng: Chỉ ngang (Cố định)"
+                        isPortraitMode -> "Đang chỉnh: Bố cục Dọc (Chạm để đổi)"
+                        else -> "Đang chỉnh: Bố cục Ngang (Chạm để đổi)"
+                    },
+                    {
+                        if (workingProfile.effectiveOrientationMode != HudProfileOrientationMode.PORTRAIT_ONLY &&
+                            workingProfile.effectiveOrientationMode != HudProfileOrientationMode.LANDSCAPE_ONLY) {
+                            isPortraitMode = !isPortraitMode
+                            selectedId = null
+                        }
+                    },
+                    active = isPortraitMode,
+                ) {
+                    Icon(
+                        if (isPortraitMode) Icons.Rounded.StayCurrentPortrait else Icons.Rounded.StayCurrentLandscape,
+                        contentDescription = null,
+                    )
+                }
+                FloatingEditorButton("Hoàn tác", ::undo, enabled = undoStack.isNotEmpty()) {
+                    Icon(Icons.AutoMirrored.Rounded.Undo, contentDescription = "Hoàn tác")
+                }
+                FloatingEditorButton("Làm lại", ::redo, enabled = redoStack.isNotEmpty()) {
+                    Icon(Icons.AutoMirrored.Rounded.Redo, contentDescription = "Làm lại")
+                }
+                if (selected != null) {
+                    FloatingEditorButton(
+                        if (selected.locked) "Mở khóa thành phần" else "Khóa thành phần",
+                        { toggleLock(selected) },
+                        active = selected.locked,
+                    ) {
+                        Icon(
+                            if (selected.locked) Icons.Rounded.Lock else Icons.Rounded.LockOpen,
+                            contentDescription = null,
+                            tint = if (selected.locked) Color(0xFFFFB300) else Color.Unspecified,
+                        )
+                    }
+                    FloatingEditorButton("Nhân bản thành phần", { duplicateWidget(selected) }) {
+                        Icon(Icons.Rounded.ContentCopy, contentDescription = null)
+                    }
+                    FloatingEditorButton("Bỏ chọn thành phần", {
+                        selectedId = null
+                        inspectorOpen = false
+                    }) {
+                        Icon(Icons.Rounded.Close, contentDescription = null)
+                    }
+                }
             }
-            FloatingEditorButton("Bỏ chọn thành phần", {
-                selectedId = null
-                inspectorOpen = false
-            }, enabled = selected != null) {
-                Icon(Icons.Rounded.Close, contentDescription = null)
+
+            Row(
+                Modifier.align(Alignment.TopEnd).padding(8.dp).zIndex(10f),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                FloatingEditorButton("Xem trước toàn màn hình", {
+                    zenMode = true
+                    libraryOpen = false
+                    inspectorOpen = false
+                    settingsOpen = false
+                }) {
+                    Icon(Icons.Rounded.Fullscreen, contentDescription = "Xem trước sạch")
+                }
+                FloatingEditorButton("Thuộc tính thành phần", {
+                    inspectorOpen = !inspectorOpen
+                    libraryOpen = false
+                    settingsOpen = false
+                }, active = inspectorOpen, enabled = selected != null) {
+                    Icon(Icons.Rounded.Tune, contentDescription = null)
+                }
+                FloatingEditorButton("Cài đặt HUD", {
+                    settingsOpen = !settingsOpen
+                    libraryOpen = false
+                    inspectorOpen = false
+                }, active = settingsOpen) {
+                    Icon(Icons.Rounded.Settings, contentDescription = null)
+                }
             }
-        }
-        Row(
-            Modifier.align(Alignment.TopEnd).padding(8.dp).zIndex(10f),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            FloatingEditorButton("Thuộc tính thành phần", {
-                inspectorOpen = !inspectorOpen
-                libraryOpen = false
-                settingsOpen = false
-            }, active = inspectorOpen, enabled = selected != null) {
-                Icon(Icons.Rounded.Tune, contentDescription = null)
-            }
-            FloatingEditorButton("Cài đặt HUD", {
-                settingsOpen = !settingsOpen
-                libraryOpen = false
-                inspectorOpen = false
-            }, active = settingsOpen) {
-                Icon(Icons.Rounded.Settings, contentDescription = null)
+        } else {
+            Surface(
+                color = HudSurfaceHigh.copy(alpha = 0.88f),
+                shape = RoundedCornerShape(20.dp),
+                shadowElevation = 8.dp,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 16.dp)
+                    .clickable { zenMode = false }
+                    .zIndex(10f),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(Icons.Rounded.FullscreenExit, contentDescription = null, tint = HudCyan, modifier = Modifier.size(16.dp))
+                    Text("Chế độ xem trước HUD · Chạm để hiện công cụ", fontSize = 11.sp, color = HudCyan)
+                }
             }
         }
 
-        if (libraryOpen) {
+        if (!zenMode && libraryOpen) {
             Box(Modifier.align(Alignment.TopStart).padding(top = 62.dp).zIndex(4f)) {
                 WidgetLibrary(
                     onClose = { libraryOpen = false },
@@ -379,10 +561,20 @@ fun EditorScreen(
             }
         }
 
-        if (inspectorOpen) {
+        if (!zenMode && inspectorOpen) {
             InspectorPanel(
                 element = selected,
-                modifier = Modifier.align(Alignment.TopEnd).padding(top = 62.dp).width(270.dp).fillMaxHeight().zIndex(5f),
+                isBottomSheet = isPortraitMode,
+                modifier = if (isPortraitMode) {
+                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(0.50f).zIndex(5f)
+                } else {
+                    Modifier.align(Alignment.TopEnd).padding(top = 62.dp).width(270.dp).fillMaxHeight().zIndex(5f)
+                },
+                canvasWidthDp = with(density) { canvasBounds.width.toDp().value },
+                canvasHeightDp = with(density) { canvasBounds.height.toDp().value },
+                onAlign = { alignWidget(selected!!, it) },
+                onToggleLock = { selected?.let(::toggleLock) },
+                onDuplicate = { selected?.let(::duplicateWidget) },
                 onChange = ::updateWorkingElement,
                 onDelete = { selected?.id?.let(::removeWidget) },
                 onLayerMove = { move -> selected?.id?.let { moveWidget(it, move) } },
@@ -391,7 +583,7 @@ fun EditorScreen(
             )
         }
 
-        if (settingsOpen) {
+        if (!zenMode && settingsOpen) {
             EditorSettingsPanel(
                 profile = workingProfile,
                 scale = workingProfile.hudScale,
@@ -471,6 +663,7 @@ private fun CanvasWorkspace(
     onSelect: (String) -> Unit,
     onDoubleTap: (String) -> Unit,
     onClearFocus: () -> Unit,
+    onDragStart: () -> Unit,
     onElementChange: (HudElementConfig) -> Unit,
 ) {
     Box(
@@ -498,6 +691,7 @@ private fun CanvasWorkspace(
                 selectedId = selectedId,
                 onSelect = onSelect,
                 onDoubleTap = onDoubleTap,
+                onDragStart = onDragStart,
                 onElementChange = onElementChange,
             )
         }
@@ -591,7 +785,13 @@ private fun WidgetLibraryItem(
 @Composable
 private fun InspectorPanel(
     element: HudElementConfig?,
+    isBottomSheet: Boolean,
     modifier: Modifier,
+    canvasWidthDp: Float,
+    canvasHeightDp: Float,
+    onAlign: (AlignmentAction) -> Unit,
+    onToggleLock: () -> Unit,
+    onDuplicate: () -> Unit,
     onChange: (HudElementConfig) -> Unit,
     onDelete: () -> Unit,
     onLayerMove: (HudLayerMove) -> Unit,
@@ -600,7 +800,8 @@ private fun InspectorPanel(
 ) {
     Surface(
         color = EditorPanel.copy(alpha = .97f),
-        shape = RoundedCornerShape(topStart = 14.dp, bottomStart = 14.dp),
+        shape = if (isBottomSheet) RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp)
+                else RoundedCornerShape(topStart = 14.dp, bottomStart = 14.dp),
         shadowElevation = 12.dp,
         modifier = modifier,
     ) {
@@ -620,11 +821,35 @@ private fun InspectorPanel(
                 Modifier.fillMaxSize().padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                if (isBottomSheet) {
+                    item {
+                        Box(
+                            Modifier.fillMaxWidth().padding(bottom = 2.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Box(
+                                Modifier
+                                    .size(36.dp, 4.dp)
+                                    .background(HudOutline, RoundedCornerShape(2.dp)),
+                            )
+                        }
+                    }
+                }
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(widgetLabel(element.type), fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                             Text("Thuộc tính thành phần", fontSize = 10.sp, color = HudCyan)
+                        }
+                        IconButton(onClick = onToggleLock) {
+                            Icon(
+                                if (element.locked) Icons.Rounded.Lock else Icons.Rounded.LockOpen,
+                                contentDescription = if (element.locked) "Mở khóa thành phần" else "Khóa thành phần",
+                                tint = if (element.locked) Color(0xFFFFB300) else MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                        IconButton(onClick = onDuplicate) {
+                            Icon(Icons.Rounded.ContentCopy, contentDescription = "Nhân bản thành phần")
                         }
                         IconButton(onClick = onClose) {
                             Icon(Icons.Rounded.Close, contentDescription = "Đóng thuộc tính thành phần")
@@ -667,7 +892,9 @@ private fun InspectorPanel(
                         Switch(checked = element.visible, onCheckedChange = { onChange(element.copy(visible = it)) })
                     }
                 }
-                item { InspectorSection("Lớp") }
+                item { InspectorSection("Căn lề tự động") }
+                item { AlignmentControls(onAlign = onAlign) }
+                item { InspectorSection("Lớp hiển thị") }
                 item { LayerControls(onLayerMove) }
                 item { InspectorSection("Vị trí") }
                 item {
@@ -858,6 +1085,60 @@ private fun LayerControls(onMove: (HudLayerMove) -> Unit) {
 }
 
 @Composable
+private fun AlignmentControls(onAlign: (AlignmentAction) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            OutlinedButton(
+                onClick = { onAlign(AlignmentAction.CENTER_HORIZONTAL) },
+                modifier = Modifier.weight(1f),
+            ) {
+                Icon(Icons.Rounded.AlignHorizontalCenter, contentDescription = null, modifier = Modifier.size(16.dp))
+                Text(" Giữa ngang", fontSize = 10.sp)
+            }
+            OutlinedButton(
+                onClick = { onAlign(AlignmentAction.CENTER_VERTICAL) },
+                modifier = Modifier.weight(1f),
+            ) {
+                Icon(Icons.Rounded.AlignVerticalCenter, contentDescription = null, modifier = Modifier.size(16.dp))
+                Text(" Giữa dọc", fontSize = 10.sp)
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            OutlinedButton(
+                onClick = { onAlign(AlignmentAction.ALIGN_LEFT) },
+                modifier = Modifier.weight(1f),
+            ) {
+                Icon(Icons.AutoMirrored.Rounded.FormatAlignLeft, contentDescription = null, modifier = Modifier.size(16.dp))
+                Text(" Lề trái", fontSize = 10.sp)
+            }
+            OutlinedButton(
+                onClick = { onAlign(AlignmentAction.ALIGN_RIGHT) },
+                modifier = Modifier.weight(1f),
+            ) {
+                Icon(Icons.AutoMirrored.Rounded.FormatAlignRight, contentDescription = null, modifier = Modifier.size(16.dp))
+                Text(" Lề phải", fontSize = 10.sp)
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            OutlinedButton(
+                onClick = { onAlign(AlignmentAction.ALIGN_TOP) },
+                modifier = Modifier.weight(1f),
+            ) {
+                Icon(Icons.Rounded.VerticalAlignTop, contentDescription = null, modifier = Modifier.size(16.dp))
+                Text(" Sát đỉnh", fontSize = 10.sp)
+            }
+            OutlinedButton(
+                onClick = { onAlign(AlignmentAction.ALIGN_BOTTOM) },
+                modifier = Modifier.weight(1f),
+            ) {
+                Icon(Icons.Rounded.VerticalAlignBottom, contentDescription = null, modifier = Modifier.size(16.dp))
+                Text(" Sát đáy", fontSize = 10.sp)
+            }
+        }
+    }
+}
+
+@Composable
 private fun PositionControls(element: HudElementConfig, onChange: (HudElementConfig) -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
         OutlinedIconButton(onClick = { onChange(element.copy(y = (element.y - 4f).coerceAtLeast(0f))) }) {
@@ -936,14 +1217,17 @@ private fun widgetLabel(type: HudWidgetType): String = when (type) {
     HudWidgetType.CUSTOM_TEXT -> "Chữ tùy chỉnh"
     HudWidgetType.CUSTOM_IMAGE -> "Ảnh tùy chỉnh"
     HudWidgetType.PHONE_BATTERY -> "Pin điện thoại (cũ)"
+    HudWidgetType.CLOCK -> "Đồng hồ số"
+    HudWidgetType.COMPASS -> "La bàn số"
+    HudWidgetType.TRIP_PROGRESS -> "Tiến độ hành trình"
 }
 
 private fun widgetHint(type: HudWidgetType): String = when (type) {
     HudWidgetType.SPEED, HudWidgetType.SPEED_NUMBER,
     HudWidgetType.SPEED_LIMIT, HudWidgetType.SPEED_LIMIT_BAR -> "Phương tiện"
-    HudWidgetType.TURN, HudWidgetType.NEXT_TURN, HudWidgetType.DISTANCE, HudWidgetType.LANES -> "Điều hướng"
-    HudWidgetType.STREET, HudWidgetType.NEXT_STREET, HudWidgetType.ETA, HudWidgetType.REMAINING -> "Lộ trình"
-    HudWidgetType.GPS, HudWidgetType.CONNECTION -> "Trạng thái"
+    HudWidgetType.TURN, HudWidgetType.NEXT_TURN, HudWidgetType.DISTANCE, HudWidgetType.LANES, HudWidgetType.COMPASS -> "Điều hướng"
+    HudWidgetType.STREET, HudWidgetType.NEXT_STREET, HudWidgetType.ETA, HudWidgetType.REMAINING, HudWidgetType.TRIP_PROGRESS -> "Lộ trình"
+    HudWidgetType.GPS, HudWidgetType.CONNECTION, HudWidgetType.CLOCK -> "Thời gian & Trạng thái"
     HudWidgetType.ALERTS -> "Cảnh báo"
     HudWidgetType.TRAFFIC_DELAY -> "Giao thông"
     HudWidgetType.CUSTOM_TEXT -> "Cá nhân hóa"

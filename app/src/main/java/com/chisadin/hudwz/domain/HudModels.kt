@@ -62,6 +62,7 @@ data class HudState(
     val alerts: List<HudAlert> = emptyList(),
     val trafficDelayMinutes: Int? = null,
     val trafficSeverity: Int? = null,
+    val bearingDegrees: Float? = null,
     val connected: Boolean = false,
     val sessionId: Long? = null,
     val sourceTimestampMs: Long = 0,
@@ -73,7 +74,8 @@ enum class HudWidgetType {
     SPEED, SPEED_NUMBER, SPEED_LIMIT, SPEED_LIMIT_BAR,
     TURN, NEXT_TURN, DISTANCE, STREET, NEXT_STREET,
     ETA, REMAINING, GPS, CONNECTION, ALERTS, LANES, TRAFFIC_DELAY,
-    CUSTOM_TEXT, CUSTOM_IMAGE, PHONE_BATTERY
+    CUSTOM_TEXT, CUSTOM_IMAGE, PHONE_BATTERY,
+    CLOCK, COMPASS, TRIP_PROGRESS
 }
 
 val HudWidgetType.locksAspectRatio: Boolean
@@ -132,6 +134,7 @@ data class HudElementConfig(
     val orientation: HudElementOrientation = HudElementOrientation.AUTO,
     val customText: String = "Chữ tùy chỉnh",
     val customImageUri: String? = null,
+    val locked: Boolean = false,
 )
 
 fun defaultHudElement(
@@ -167,6 +170,9 @@ fun defaultHudElement(
         HudWidgetType.CUSTOM_TEXT -> base.copy(widthDp = 240f, heightDp = 50f, fontSizeSp = 24f)
         HudWidgetType.CUSTOM_IMAGE -> base.copy(widthDp = 160f, heightDp = 110f, spacingDp = 0f)
         HudWidgetType.PHONE_BATTERY -> base.copy(widthDp = 160f, heightDp = 42f, iconSizeDp = 24f, fontSizeSp = 15f)
+        HudWidgetType.CLOCK -> base.copy(widthDp = 130f, heightDp = 48f, fontSizeSp = 28f)
+        HudWidgetType.COMPASS -> base.copy(widthDp = 96f, heightDp = 50f, fontSizeSp = 18f, iconSizeDp = 24f)
+        HudWidgetType.TRIP_PROGRESS -> base.copy(widthDp = 220f, heightDp = 34f)
     }
 }
 

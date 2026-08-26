@@ -26,6 +26,8 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
@@ -35,15 +37,20 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.GpsFixed
 import androidx.compose.material.icons.rounded.GpsOff
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material.icons.rounded.Image as ImageIcon
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -61,6 +68,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -93,11 +101,16 @@ import com.chisadin.hudwz.domain.LaneGuidance
 import com.chisadin.hudwz.domain.TurnType
 import com.chisadin.hudwz.domain.defaultHudElement
 import com.chisadin.hudwz.domain.locksAspectRatio
+import com.chisadin.hudwz.sensor.headingToDirectionText
+import com.chisadin.hudwz.sensor.rememberDeviceHeading
 import com.chisadin.hudwz.ui.theme.HudCyan
 import com.chisadin.hudwz.ui.theme.HudMuted
 import com.chisadin.hudwz.ui.theme.HudRed
 import com.chisadin.hudwz.ui.theme.HudSurface
+import com.chisadin.hudwz.ui.theme.HudSurfaceHigh
 import com.chisadin.hudwz.ui.theme.HudText
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.roundToInt
@@ -105,6 +118,12 @@ import kotlin.math.sin
 import kotlin.math.min
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+
+private data class SnapCandidate(
+    val target: Float,
+    val guide: Float,
+    val distance: Float,
+)
 
 @Composable
 fun HudRenderer(
@@ -119,6 +138,7 @@ fun HudRenderer(
     forcePortrait: Boolean? = null,
     onSelect: (String) -> Unit = {},
     onDoubleTap: (String) -> Unit = {},
+    onDragStart: (() -> Unit)? = null,
     onElementChange: (HudElementConfig) -> Unit = {},
 ) {
     BoxWithConstraints(
@@ -134,6 +154,8 @@ fun HudRenderer(
         val profileScale = profile.hudScale
         val isPortrait = forcePortrait ?: (canvasHeightDp > canvasWidthDp)
         val activeElements = profile.elementsFor(isPortrait)
+        var activeSnapX by remember { mutableStateOf<Float?>(null) }
+        var activeSnapY by remember { mutableStateOf<Float?>(null) }
         activeElements
             .filter { it.visible || (editing && showInactiveInEditor) }
             .filter { editing || shouldRenderWidget(it.type, state, it) }
@@ -156,20 +178,157 @@ fun HudRenderer(
                         onClick = { onSelect(element.id) },
                         onDoubleClick = { onDoubleTap(element.id) },
                     )
-                    .pointerInput(element.id, maxX, maxY) {
+                    .pointerInput(element.id, maxX, maxY, element.locked) {
+                        if (element.locked) return@pointerInput
                         var dragX = element.x
                         var dragY = element.y
                         detectDragGestures(
                             onDragStart = {
+                                onDragStart?.invoke()
                                 dragX = latestElement.x
                                 dragY = latestElement.y
                                 onSelect(latestElement.id)
                             },
+                            onDragEnd = {
+                                activeSnapX = null
+                                activeSnapY = null
+                            },
+                            onDragCancel = {
+                                activeSnapX = null
+                                activeSnapY = null
+                            },
                         ) { change, amount ->
                             change.consume()
-                            dragX = (dragX + amount.x / density.density).coerceIn(0f, maxX)
-                            dragY = (dragY + amount.y / density.density).coerceIn(0f, maxY)
-                            onElementChange(latestElement.copy(x = dragX, y = dragY))
+                            var targetX = (dragX + amount.x / density.density).coerceIn(0f, maxX)
+                            var targetY = (dragY + amount.y / density.density).coerceIn(0f, maxY)
+
+                            val snapThreshold = 8.5f
+                            val otherElements = activeElements.filter {
+                                it.id != latestElement.id && (it.visible || (editing && showInactiveInEditor))
+                            }
+
+                            // 1. Dính cạnh & tâm theo trục X (Component-to-Component & Canvas)
+                            val snapCandidatesX = mutableListOf<SnapCandidate>()
+                            for (other in otherElements) {
+                                val otherW = other.widthDp * other.scale * profileScale
+                                val otherLeft = other.x
+                                val otherRight = other.x + otherW
+                                val otherCenterX = other.x + otherW / 2f
+
+                                // Cạnh trái trùng cạnh trái
+                                val dLeftLeft = kotlin.math.abs(targetX - otherLeft)
+                                if (dLeftLeft <= snapThreshold) snapCandidatesX.add(SnapCandidate(otherLeft, otherLeft, dLeftLeft))
+
+                                // Cạnh phải trùng cạnh phải
+                                val dRightRight = kotlin.math.abs((targetX + widthDp) - otherRight)
+                                if (dRightRight <= snapThreshold) snapCandidatesX.add(SnapCandidate(otherRight - widthDp, otherRight, dRightRight))
+
+                                // Cạnh trái dính cạnh phải component khác (kề nhau)
+                                val dLeftRight = kotlin.math.abs(targetX - otherRight)
+                                if (dLeftRight <= snapThreshold) snapCandidatesX.add(SnapCandidate(otherRight, otherRight, dLeftRight))
+
+                                // Cạnh phải dính cạnh trái component khác (kề nhau)
+                                val dRightLeft = kotlin.math.abs((targetX + widthDp) - otherLeft)
+                                if (dRightLeft <= snapThreshold) snapCandidatesX.add(SnapCandidate(otherLeft - widthDp, otherLeft, dRightLeft))
+
+                                // Tâm dọc trùng tâm dọc
+                                val dCenterCenter = kotlin.math.abs((targetX + widthDp / 2f) - otherCenterX)
+                                if (dCenterCenter <= snapThreshold) snapCandidatesX.add(SnapCandidate(otherCenterX - widthDp / 2f, otherCenterX, dCenterCenter))
+                            }
+
+                            val bestX = snapCandidatesX.minByOrNull { it.distance }
+                            if (bestX != null) {
+                                targetX = bestX.target.coerceIn(0f, maxX)
+                                activeSnapX = bestX.guide
+                            } else {
+                                val canvasCenterX = canvasWidthDp / 2f
+                                val elemCenterX = targetX + widthDp / 2f
+                                val dCanvasCenter = kotlin.math.abs(elemCenterX - canvasCenterX)
+                                val dLeftEdge = kotlin.math.abs(targetX - 16f)
+                                val dRightEdge = if (maxX >= 32f) kotlin.math.abs(targetX - (maxX - 16f)) else Float.MAX_VALUE
+
+                                when {
+                                    dCanvasCenter <= snapThreshold -> {
+                                        targetX = (canvasCenterX - widthDp / 2f).coerceIn(0f, maxX)
+                                        activeSnapX = canvasCenterX
+                                    }
+                                    dLeftEdge <= snapThreshold -> {
+                                        targetX = 16f.coerceIn(0f, maxX)
+                                        activeSnapX = 16f
+                                    }
+                                    dRightEdge <= snapThreshold -> {
+                                        targetX = (maxX - 16f).coerceIn(0f, maxX)
+                                        activeSnapX = canvasWidthDp - 16f
+                                    }
+                                    else -> {
+                                        activeSnapX = null
+                                    }
+                                }
+                            }
+
+                            // 2. Dính cạnh & tâm theo trục Y (Component-to-Component & Canvas)
+                            val snapCandidatesY = mutableListOf<SnapCandidate>()
+                            for (other in otherElements) {
+                                val otherSourceH = if (other.type.locksAspectRatio) other.widthDp else other.heightDp
+                                val otherH = otherSourceH * other.scale * profileScale
+                                val otherTop = other.y
+                                val otherBottom = other.y + otherH
+                                val otherCenterY = other.y + otherH / 2f
+
+                                // Mép trên trùng mép trên
+                                val dTopTop = kotlin.math.abs(targetY - otherTop)
+                                if (dTopTop <= snapThreshold) snapCandidatesY.add(SnapCandidate(otherTop, otherTop, dTopTop))
+
+                                // Mép dưới trùng mép dưới
+                                val dBottomBottom = kotlin.math.abs((targetY + heightDp) - otherBottom)
+                                if (dBottomBottom <= snapThreshold) snapCandidatesY.add(SnapCandidate(otherBottom - heightDp, otherBottom, dBottomBottom))
+
+                                // Mép trên dính mép dưới component khác (xếp chồng)
+                                val dTopBottom = kotlin.math.abs(targetY - otherBottom)
+                                if (dTopBottom <= snapThreshold) snapCandidatesY.add(SnapCandidate(otherBottom, otherBottom, dTopBottom))
+
+                                // Mép dưới dính mép trên component khác (xếp chồng)
+                                val dBottomTop = kotlin.math.abs((targetY + heightDp) - otherTop)
+                                if (dBottomTop <= snapThreshold) snapCandidatesY.add(SnapCandidate(otherTop - heightDp, otherTop, dBottomTop))
+
+                                // Tâm ngang trùng tâm ngang
+                                val dCenterCenter = kotlin.math.abs((targetY + heightDp / 2f) - otherCenterY)
+                                if (dCenterCenter <= snapThreshold) snapCandidatesY.add(SnapCandidate(otherCenterY - heightDp / 2f, otherCenterY, dCenterCenter))
+                            }
+
+                            val bestY = snapCandidatesY.minByOrNull { it.distance }
+                            if (bestY != null) {
+                                targetY = bestY.target.coerceIn(0f, maxY)
+                                activeSnapY = bestY.guide
+                            } else {
+                                val canvasCenterY = canvasHeightDp / 2f
+                                val elemCenterY = targetY + heightDp / 2f
+                                val dCanvasCenter = kotlin.math.abs(elemCenterY - canvasCenterY)
+                                val dTopEdge = kotlin.math.abs(targetY - 16f)
+                                val dBottomEdge = if (maxY >= 32f) kotlin.math.abs(targetY - (maxY - 16f)) else Float.MAX_VALUE
+
+                                when {
+                                    dCanvasCenter <= snapThreshold -> {
+                                        targetY = (canvasCenterY - heightDp / 2f).coerceIn(0f, maxY)
+                                        activeSnapY = canvasCenterY
+                                    }
+                                    dTopEdge <= snapThreshold -> {
+                                        targetY = 16f.coerceIn(0f, maxY)
+                                        activeSnapY = 16f
+                                    }
+                                    dBottomEdge <= snapThreshold -> {
+                                        targetY = (maxY - 16f).coerceIn(0f, maxY)
+                                        activeSnapY = canvasHeightDp - 16f
+                                    }
+                                    else -> {
+                                        activeSnapY = null
+                                    }
+                                }
+                            }
+
+                            dragX = targetX
+                            dragY = targetY
+                            onElementChange(latestElement.copy(x = targetX, y = targetY))
                         }
                     }
             }
@@ -184,7 +343,32 @@ fun HudRenderer(
                         densityScale = profileScale,
                         canvasWidthDp = canvasWidthDp,
                         canvasHeightDp = canvasHeightDp,
+                        onDragStart = onDragStart,
                         onElementChange = onElementChange,
+                    )
+                }
+            }
+        }
+        if (editing) {
+            Canvas(Modifier.fillMaxSize()) {
+                activeSnapX?.let { snapX ->
+                    val xPx = snapX.dp.toPx()
+                    drawLine(
+                        color = HudCyan.copy(alpha = 0.75f),
+                        start = Offset(xPx, 0f),
+                        end = Offset(xPx, size.height),
+                        strokeWidth = 1.5.dp.toPx(),
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 8f)),
+                    )
+                }
+                activeSnapY?.let { snapY ->
+                    val yPx = snapY.dp.toPx()
+                    drawLine(
+                        color = HudCyan.copy(alpha = 0.75f),
+                        start = Offset(0f, yPx),
+                        end = Offset(size.width, yPx),
+                        strokeWidth = 1.5.dp.toPx(),
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 8f)),
                     )
                 }
             }
@@ -200,8 +384,10 @@ private fun FocusFrame(
     densityScale: Float,
     canvasWidthDp: Float,
     canvasHeightDp: Float,
+    onDragStart: (() -> Unit)? = null,
     onElementChange: (HudElementConfig) -> Unit,
 ) {
+    val frameColor = if (element.locked) Color(0xFFFFB300) else HudCyan
     Box(modifier.semantics { contentDescription = "Đang chọn ${element.type.name}" }) {
         Canvas(Modifier.fillMaxSize()) {
             val thin = 1.dp.toPx()
@@ -209,31 +395,46 @@ private fun FocusFrame(
             val corner = 15.dp.toPx().coerceAtMost(size.minDimension * .32f)
             val inset = strong / 2f
             drawRoundRect(
-                color = HudCyan.copy(alpha = .42f),
+                color = frameColor.copy(alpha = if (element.locked) .6f else .42f),
                 topLeft = Offset(inset, inset),
                 size = Size((size.width - strong).coerceAtLeast(0f), (size.height - strong).coerceAtLeast(0f)),
                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(7.dp.toPx()),
                 style = Stroke(thin),
             )
-            val color = HudCyan
-            drawLine(color, Offset(inset, inset), Offset(inset + corner, inset), strong, StrokeCap.Square)
-            drawLine(color, Offset(inset, inset), Offset(inset, inset + corner), strong, StrokeCap.Square)
-            drawLine(color, Offset(size.width - inset, inset), Offset(size.width - inset - corner, inset), strong, StrokeCap.Square)
-            drawLine(color, Offset(size.width - inset, inset), Offset(size.width - inset, inset + corner), strong, StrokeCap.Square)
-            drawLine(color, Offset(inset, size.height - inset), Offset(inset + corner, size.height - inset), strong, StrokeCap.Square)
-            drawLine(color, Offset(inset, size.height - inset), Offset(inset, size.height - inset - corner), strong, StrokeCap.Square)
-            drawLine(color, Offset(size.width - inset, size.height - inset), Offset(size.width - inset - corner, size.height - inset), strong, StrokeCap.Square)
-            drawLine(color, Offset(size.width - inset, size.height - inset), Offset(size.width - inset, size.height - inset - corner), strong, StrokeCap.Square)
+            drawLine(frameColor, Offset(inset, inset), Offset(inset + corner, inset), strong, StrokeCap.Square)
+            drawLine(frameColor, Offset(inset, inset), Offset(inset, inset + corner), strong, StrokeCap.Square)
+            drawLine(frameColor, Offset(size.width - inset, inset), Offset(size.width - inset - corner, inset), strong, StrokeCap.Square)
+            drawLine(frameColor, Offset(size.width - inset, inset), Offset(size.width - inset, inset + corner), strong, StrokeCap.Square)
+            drawLine(frameColor, Offset(inset, size.height - inset), Offset(inset + corner, size.height - inset), strong, StrokeCap.Square)
+            drawLine(frameColor, Offset(inset, size.height - inset), Offset(inset, size.height - inset - corner), strong, StrokeCap.Square)
+            drawLine(frameColor, Offset(size.width - inset, size.height - inset), Offset(size.width - inset - corner, size.height - inset), strong, StrokeCap.Square)
+            drawLine(frameColor, Offset(size.width - inset, size.height - inset), Offset(size.width - inset, size.height - inset - corner), strong, StrokeCap.Square)
         }
-        ResizeHandle(
-            modifier = Modifier.align(Alignment.BottomEnd),
-            element = element,
-            densityScale = densityScale,
-            aspectLocked = element.type.locksAspectRatio,
-            canvasWidthDp = canvasWidthDp,
-            canvasHeightDp = canvasHeightDp,
-            onElementChange = onElementChange,
-        )
+        if (element.locked) {
+            Surface(
+                color = Color(0xFFFFB300),
+                shape = CircleShape,
+                modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(18.dp),
+            ) {
+                Icon(
+                    Icons.Rounded.Lock,
+                    contentDescription = "Đã khóa thành phần",
+                    tint = Color.Black,
+                    modifier = Modifier.padding(3.dp),
+                )
+            }
+        } else {
+            ResizeHandle(
+                modifier = Modifier.align(Alignment.BottomEnd),
+                element = element,
+                densityScale = densityScale,
+                aspectLocked = element.type.locksAspectRatio,
+                canvasWidthDp = canvasWidthDp,
+                canvasHeightDp = canvasHeightDp,
+                onDragStart = onDragStart,
+                onElementChange = onElementChange,
+            )
+        }
     }
 }
 
@@ -268,6 +469,7 @@ private fun ResizeHandle(
     aspectLocked: Boolean,
     canvasWidthDp: Float,
     canvasHeightDp: Float,
+    onDragStart: (() -> Unit)? = null,
     onElementChange: (HudElementConfig) -> Unit,
 ) {
     val density = LocalDensity.current
@@ -283,6 +485,7 @@ private fun ResizeHandle(
                 var height = if (aspectLocked) latestElement.widthDp else latestElement.heightDp
                 detectDragGestures(
                     onDragStart = {
+                        onDragStart?.invoke()
                         width = latestElement.widthDp
                         height = if (aspectLocked) latestElement.widthDp else latestElement.heightDp
                     },
@@ -378,6 +581,205 @@ private fun HudWidget(
             )
             HudWidgetType.CUSTOM_IMAGE -> CustomImageWidget(config.customImageUri, config.spacingDp, editing)
             HudWidgetType.PHONE_BATTERY -> ConnectivityBatteryWidget(state.connected, config)
+            HudWidgetType.CLOCK -> ClockWidget(config, globalFontScale, weight, align)
+            HudWidgetType.COMPASS -> CompassWidget(state.bearingDegrees, config, globalFontScale, weight)
+            HudWidgetType.TRIP_PROGRESS -> TripProgressWidget(state, config, editing)
+        }
+    }
+}
+
+@Composable
+private fun ClockWidget(
+    config: HudElementConfig,
+    fontScale: Float,
+    weight: FontWeight,
+    align: TextAlign,
+) {
+    val numberFont = rememberHudNumberFont()
+    var timeText by remember { mutableStateOf("") }
+    LaunchedEffect(Unit) {
+        val formatter = DateTimeFormatter.ofPattern("HH:mm")
+        while (true) {
+            timeText = LocalTime.now().format(formatter)
+            val delayMs = 1000L - (System.currentTimeMillis() % 1000L)
+            kotlinx.coroutines.delay(delayMs)
+        }
+    }
+    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        val fitted = min(
+            config.fontSizeSp * fontScale,
+            min(maxWidth.value * 0.48f, maxHeight.value * 0.88f),
+        ).coerceAtLeast(8f)
+        Text(
+            text = timeText.ifBlank { "00:00" },
+            color = HudText,
+            fontSize = fitted.sp,
+            fontWeight = weight,
+            fontFamily = numberFont,
+            textAlign = align,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun CompassWidget(
+    bearingDegrees: Float?,
+    config: HudElementConfig,
+    fontScale: Float,
+    weight: FontWeight,
+) {
+    val heading = rememberDeviceHeading(bearingDegrees)
+    val dirCode = headingToDirectionText(heading)
+    val textFont = rememberHudTextFont()
+    val numberFont = rememberHudNumberFont()
+
+    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        val iconSize = min(config.iconSizeDp, min(maxWidth.value * 0.45f, maxHeight.value * 0.75f)).coerceAtLeast(14f)
+        val textSize = min(config.fontSizeSp * fontScale, maxHeight.value * 0.58f).coerceAtLeast(8f)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy((config.spacingDp * 0.8f).dp),
+        ) {
+            Box(
+                Modifier.size(iconSize.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Canvas(Modifier.fillMaxSize()) {
+                    val radius = size.minDimension / 2f
+                    val center = Offset(size.width / 2f, size.height / 2f)
+                    drawCircle(
+                        color = HudSurfaceHigh,
+                        radius = radius,
+                        center = center,
+                    )
+                    drawCircle(
+                        color = HudCyan.copy(alpha = 0.5f),
+                        radius = radius,
+                        center = center,
+                        style = Stroke(1.2.dp.toPx()),
+                    )
+                    val rad = Math.toRadians((-heading + 90.0)).toFloat()
+                    val pX = (kotlin.math.cos(rad) * radius * 0.72f)
+                    val pY = (-kotlin.math.sin(rad) * radius * 0.72f)
+                    drawLine(
+                        color = Color(0xFFFF3D00),
+                        start = center,
+                        end = Offset(center.x + pX, center.y + pY),
+                        strokeWidth = 2.6.dp.toPx(),
+                        cap = StrokeCap.Round,
+                    )
+                    drawLine(
+                        color = Color.White.copy(alpha = 0.75f),
+                        start = center,
+                        end = Offset(center.x - pX, center.y - pY),
+                        strokeWidth = 2.dp.toPx(),
+                        cap = StrokeCap.Round,
+                    )
+                    drawCircle(color = Color.White, radius = 2.dp.toPx(), center = center)
+                }
+            }
+            Column(horizontalAlignment = Alignment.Start) {
+                Text(
+                    text = dirCode,
+                    color = HudCyan,
+                    fontSize = textSize.sp,
+                    fontWeight = FontWeight.Black,
+                    fontFamily = textFont,
+                    maxLines = 1,
+                )
+                Text(
+                    text = "${heading.roundToInt()}°",
+                    color = HudMuted,
+                    fontSize = (textSize * 0.65f).coerceAtLeast(7f).sp,
+                    fontWeight = weight,
+                    fontFamily = numberFont,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TripProgressWidget(
+    state: HudState,
+    config: HudElementConfig,
+    editing: Boolean,
+) {
+    val currentRemaining = state.remainingMeters ?: state.remainingKm?.let { (it * 1000).toInt() } ?: 0
+    var maxDistanceMeters by remember(state.sessionId) { mutableIntStateOf(currentRemaining) }
+    if (currentRemaining > maxDistanceMeters) {
+        maxDistanceMeters = currentRemaining
+    }
+    val progressRatio = when {
+        editing -> 0.68f
+        maxDistanceMeters > 0 -> (1f - (currentRemaining.toFloat() / maxDistanceMeters.toFloat())).coerceIn(0.05f, 1f)
+        state.remainingMinutes != null -> 0.5f
+        else -> 0.2f
+    }
+    val percentInt = (progressRatio * 100).roundToInt()
+    val textFont = rememberHudTextFont()
+    val numberFont = rememberHudNumberFont()
+
+    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Lộ trình", color = HudMuted, fontSize = 9.sp, fontFamily = textFont)
+                Text("$percentInt%", color = HudCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = numberFont)
+            }
+            Box(
+                Modifier.fillMaxWidth().height(14.dp),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(5.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(Color(0xFF163B66)),
+                )
+                Box(
+                    Modifier
+                        .fillMaxWidth(progressRatio)
+                        .height(5.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(Color(0xFF00E5FF), Color(0xFF2979FF)),
+                            ),
+                        ),
+                )
+                Box(
+                    Modifier
+                        .fillMaxWidth(progressRatio)
+                        .offset(x = (-6).dp),
+                    contentAlignment = Alignment.CenterEnd,
+                ) {
+                    Surface(
+                        color = HudCyan,
+                        shape = CircleShape,
+                        shadowElevation = 4.dp,
+                        modifier = Modifier.size(14.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Rounded.Navigation,
+                                contentDescription = null,
+                                tint = Color.Black,
+                                modifier = Modifier.size(9.dp),
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -1142,12 +1544,16 @@ private fun widgetDescription(type: HudWidgetType, state: HudState): String = wh
     HudWidgetType.CUSTOM_TEXT -> "Chữ tùy chỉnh"
     HudWidgetType.CUSTOM_IMAGE -> "Ảnh tùy chỉnh"
     HudWidgetType.PHONE_BATTERY -> "Bluetooth và pin điện thoại"
+    HudWidgetType.CLOCK -> "Đồng hồ thời gian thực"
+    HudWidgetType.COMPASS -> "La bàn số, hướng ${state.bearingDegrees?.roundToInt() ?: 0}°"
+    HudWidgetType.TRIP_PROGRESS -> "Thanh tiến độ hành trình"
 }
 
 private fun shouldRenderWidget(type: HudWidgetType, state: HudState, config: HudElementConfig): Boolean = when (type) {
     HudWidgetType.SPEED, HudWidgetType.SPEED_NUMBER,
     HudWidgetType.SPEED_LIMIT,
-    HudWidgetType.GPS, HudWidgetType.CONNECTION -> true
+    HudWidgetType.GPS, HudWidgetType.CONNECTION,
+    HudWidgetType.CLOCK, HudWidgetType.COMPASS -> true
     HudWidgetType.SPEED_LIMIT_BAR -> state.speedLimit != null
     HudWidgetType.TURN -> state.navigating && state.turn != TurnType.NONE
     HudWidgetType.NEXT_TURN -> state.navigating && state.nextTurn != TurnType.NONE
@@ -1159,6 +1565,7 @@ private fun shouldRenderWidget(type: HudWidgetType, state: HudState, config: Hud
     HudWidgetType.ALERTS -> state.alerts.isNotEmpty()
     HudWidgetType.LANES -> state.navigating && state.lanes.isNotEmpty()
     HudWidgetType.TRAFFIC_DELAY -> (state.trafficDelayMinutes ?: 0) > 0
+    HudWidgetType.TRIP_PROGRESS -> state.navigating
     HudWidgetType.CUSTOM_TEXT, HudWidgetType.PHONE_BATTERY -> true
     HudWidgetType.CUSTOM_IMAGE -> !config.customImageUri.isNullOrBlank()
 }
@@ -1363,4 +1770,5 @@ val PreviewHudState = HudState(
     alerts = listOf(HudAlert(2, 300), HudAlert(8, 800, 60)),
     trafficDelayMinutes = 12,
     trafficSeverity = 3,
+    bearingDegrees = 45f,
 )

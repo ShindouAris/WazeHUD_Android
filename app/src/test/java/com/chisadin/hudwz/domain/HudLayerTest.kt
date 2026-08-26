@@ -128,4 +128,44 @@ class HudLayerTest {
         assertEquals(HudProfileOrientationMode.PORTRAIT_ONLY, explicitPortrait.effectiveOrientationMode)
         assertTrue(explicitPortrait.isPortraitOnly)
     }
+
+    @Test
+    fun hudElementLockedStateAndDefaults() {
+        val element = defaultHudElement(HudWidgetType.SPEED, "speed")
+        assertFalse(element.locked)
+        val locked = element.copy(locked = true)
+        assertTrue(locked.locked)
+    }
+
+    @Test
+    fun newWidgetsCanBeInstantiatedWithDefaults() {
+        val clock = defaultHudElement(HudWidgetType.CLOCK, "c1")
+        assertEquals(HudWidgetType.CLOCK, clock.type)
+        assertEquals(130f, clock.widthDp)
+        assertEquals(48f, clock.heightDp)
+
+        val compass = defaultHudElement(HudWidgetType.COMPASS, "cp1")
+        assertEquals(HudWidgetType.COMPASS, compass.type)
+        assertEquals(96f, compass.widthDp)
+        assertEquals(50f, compass.heightDp)
+
+        val tripProgress = defaultHudElement(HudWidgetType.TRIP_PROGRESS, "tp1")
+        assertEquals(HudWidgetType.TRIP_PROGRESS, tripProgress.type)
+        assertEquals(220f, tripProgress.widthDp)
+        assertEquals(34f, tripProgress.heightDp)
+    }
+
+    @Test
+    fun headingConversionCalculatesAccurateDirections() {
+        assertEquals("N", com.chisadin.hudwz.sensor.headingToDirectionText(0f))
+        assertEquals("N", com.chisadin.hudwz.sensor.headingToDirectionText(355f))
+        assertEquals("N", com.chisadin.hudwz.sensor.headingToDirectionText(10f))
+        assertEquals("NE", com.chisadin.hudwz.sensor.headingToDirectionText(45f))
+        assertEquals("E", com.chisadin.hudwz.sensor.headingToDirectionText(90f))
+        assertEquals("SE", com.chisadin.hudwz.sensor.headingToDirectionText(135f))
+        assertEquals("S", com.chisadin.hudwz.sensor.headingToDirectionText(180f))
+        assertEquals("SW", com.chisadin.hudwz.sensor.headingToDirectionText(225f))
+        assertEquals("W", com.chisadin.hudwz.sensor.headingToDirectionText(270f))
+        assertEquals("NW", com.chisadin.hudwz.sensor.headingToDirectionText(315f))
+    }
 }

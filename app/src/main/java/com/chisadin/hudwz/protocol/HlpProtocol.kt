@@ -132,6 +132,7 @@ class HlpProtocol(private val json: Json = Json { ignoreUnknownKeys = true }) {
                 ?.takeIf { it >= 0 },
             trafficSeverity = (root.int("trafficSeverity") ?: trafficAlert?.severity)
                 ?.coerceIn(1, 5),
+            bearingDegrees = (root.double("hdg") ?: root.double("heading") ?: root.double("bearing"))?.toFloat(),
             connected = true,
             sessionId = sessionId,
             sourceTimestampMs = root.long("ts") ?: 0,
