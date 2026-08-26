@@ -65,15 +65,28 @@ class HudLayerTest {
             ),
         )
         val migrated = migrateHudProfile(legacy)
-        assertEquals(2, migrated.layoutVersion)
+        assertEquals(3, migrated.layoutVersion)
         assertEquals(350f, migrated.elements.single().x, .001f)
         assertEquals(65f, migrated.elements.single().y, .001f)
     }
 
     @Test
-    fun newProfileStartsAsEmptyVersionTwoCanvas() {
+    fun newProfileStartsAsEmptyLatestCanvas() {
         val profile = emptyHudProfile("new", "Custom")
-        assertEquals(2, profile.layoutVersion)
+        assertEquals(3, profile.layoutVersion)
         assertTrue(profile.elements.isEmpty())
+    }
+
+    @Test
+    fun mergesLegacyPhoneBatteryIntoBluetoothStatus() {
+        val connection = defaultHudElement(HudWidgetType.CONNECTION, "connection")
+        val battery = defaultHudElement(HudWidgetType.PHONE_BATTERY, "battery")
+        val profile = HudProfile("legacy-status", "Legacy", 1f, 2, listOf(connection, battery))
+
+        val migrated = migrateHudProfile(profile)
+
+        assertEquals(3, migrated.layoutVersion)
+        assertEquals(listOf("connection"), migrated.elements.map { it.id })
+        assertEquals(HudWidgetType.CONNECTION, migrated.elements.single().type)
     }
 }

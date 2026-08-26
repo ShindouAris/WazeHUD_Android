@@ -1,5 +1,8 @@
 package com.chisadin.hudwz.ui.editor
 
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -51,6 +54,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -74,6 +78,7 @@ import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -111,6 +116,7 @@ fun EditorScreen(
     onMoveElement: (String, HudLayerMove) -> Unit,
 ) {
     val density = LocalDensity.current
+    val context = LocalContext.current
     var selectedId by remember(profile.id) { mutableStateOf(profile.elements.firstOrNull()?.id) }
     var workingProfile by remember(profile.id) { mutableStateOf(profile) }
     var libraryOpen by remember { mutableStateOf(false) }
@@ -152,6 +158,17 @@ fun EditorScreen(
             elements = workingProfile.elements.map { if (it.id == clamped.id) clamped else it },
         )
         onElementChange(clamped)
+    }
+
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            selected?.takeIf { it.type == HudWidgetType.CUSTOM_IMAGE }?.let {
+                updateWorkingElement(it.copy(customImageUri = uri.toString()))
+            }
+        }
     }
 
     fun addWidget(type: HudWidgetType, centerX: Float, centerY: Float) {
@@ -202,6 +219,12 @@ fun EditorScreen(
             modifier = Modifier.fillMaxSize(),
             onCanvasBounds = { canvasBounds = it },
             onSelect = { selectedId = it },
+            onDoubleTap = {
+                selectedId = it
+                inspectorOpen = true
+                libraryOpen = false
+                settingsOpen = false
+            },
             onClearFocus = {
                 selectedId = null
                 inspectorOpen = false
@@ -275,6 +298,7 @@ fun EditorScreen(
                 onChange = ::updateWorkingElement,
                 onDelete = { selected?.id?.let(::removeWidget) },
                 onLayerMove = { move -> selected?.id?.let { moveWidget(it, move) } },
+                onPickImage = { imagePicker.launch(arrayOf("image/*")) },
                 onClose = { inspectorOpen = false },
             )
         }
@@ -350,6 +374,7 @@ private fun CanvasWorkspace(
     modifier: Modifier,
     onCanvasBounds: (Rect) -> Unit,
     onSelect: (String) -> Unit,
+    onDoubleTap: (String) -> Unit,
     onClearFocus: () -> Unit,
     onElementChange: (HudElementConfig) -> Unit,
 ) {
@@ -369,6 +394,7 @@ private fun CanvasWorkspace(
                 showInactiveInEditor = showInactiveItems,
                 selectedId = selectedId,
                 onSelect = onSelect,
+                onDoubleTap = onDoubleTap,
                 onElementChange = onElementChange,
             )
     }
@@ -406,7 +432,7 @@ private fun WidgetLibrary(
                 Modifier.fillMaxSize().padding(6.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                items(HudWidgetType.entries, key = { it.name }) { type ->
+                items(HudWidgetType.entries.filterNot { it == HudWidgetType.PHONE_BATTERY }, key = { it.name }) { type ->
                     WidgetLibraryItem(type, onAdd, onDragStart, onDrag, onDrop, onCancel)
                 }
             }
@@ -465,6 +491,7 @@ private fun InspectorPanel(
     onChange: (HudElementConfig) -> Unit,
     onDelete: () -> Unit,
     onLayerMove: (HudLayerMove) -> Unit,
+    onPickImage: () -> Unit,
     onClose: () -> Unit,
 ) {
     Surface(
@@ -503,6 +530,32 @@ private fun InspectorPanel(
                         }
                     }
                 }
+                if (element.type == HudWidgetType.CUSTOM_TEXT) {
+                    item {
+                        OutlinedTextField(
+                            value = element.customText,
+                            onValueChange = { onChange(element.copy(customText = it)) },
+                            label = { Text("Nội dung") },
+                            modifier = Modifier.fillMaxWidth(),
+                            minLines = 2,
+                            maxLines = 4,
+                        )
+                    }
+                }
+                if (element.type == HudWidgetType.CUSTOM_IMAGE) {
+                    item {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            FilledTonalButton(onClick = onPickImage, modifier = Modifier.weight(1f)) {
+                                Text(if (element.customImageUri == null) "Chọn ảnh" else "Đổi ảnh")
+                            }
+                            if (element.customImageUri != null) {
+                                OutlinedButton(
+                                    onClick = { onChange(element.copy(customImageUri = null)) },
+                                ) { Text("Xóa ảnh") }
+                            }
+                        }
+                    }
+                }
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(if (element.visible) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff, contentDescription = null)
@@ -535,17 +588,21 @@ private fun InspectorPanel(
                     item { InspectorSlider("Chiều rộng", element.widthDp, 32f..600f, "${element.widthDp.roundToInt()} dp") { onChange(element.copy(widthDp = it)) } }
                     item { InspectorSlider("Chiều cao", element.heightDp, 28f..500f, "${element.heightDp.roundToInt()} dp") { onChange(element.copy(heightDp = it)) } }
                     item { InspectorSlider("Tỷ lệ thành phần", element.scale, .25f..2f, "${(element.scale * 100).roundToInt()}%") { onChange(element.copy(scale = it)) } }
-                    item { InspectorSlider("Biểu tượng", element.iconSizeDp, 4f..220f, "${element.iconSizeDp.roundToInt()} dp") { onChange(element.copy(iconSizeDp = it)) } }
+                    if (element.type != HudWidgetType.CUSTOM_TEXT && element.type != HudWidgetType.CUSTOM_IMAGE) {
+                        item { InspectorSlider("Biểu tượng", element.iconSizeDp, 4f..220f, "${element.iconSizeDp.roundToInt()} dp") { onChange(element.copy(iconSizeDp = it)) } }
+                    }
                 }
                 item { InspectorSection("Giao diện") }
                 item { InspectorSlider("Độ mờ", element.opacity, .1f..1f, "${(element.opacity * 100).roundToInt()}%") { onChange(element.copy(opacity = it)) } }
-                if (!element.type.locksAspectRatio || element.type == HudWidgetType.SPEED) {
+                if (element.type != HudWidgetType.CUSTOM_IMAGE && (!element.type.locksAspectRatio || element.type == HudWidgetType.SPEED)) {
                     item { InspectorSlider("Cỡ chữ", element.fontSizeSp, 6f..140f, "${element.fontSizeSp.roundToInt()} sp") { onChange(element.copy(fontSizeSp = it)) } }
                 }
                 item { InspectorSlider("Khoảng cách", element.spacingDp, 0f..40f, "${element.spacingDp.roundToInt()} dp") { onChange(element.copy(spacingDp = it)) } }
-                item { EnumChips("Độ đậm", HudFontWeight.entries, element.fontWeight) { onChange(element.copy(fontWeight = it)) } }
-                item { EnumChips("Căn chỉnh", HudTextAlignment.entries, element.textAlignment) { onChange(element.copy(textAlignment = it)) } }
-                item { EnumChips("Hướng", HudElementOrientation.entries, element.orientation) { onChange(element.copy(orientation = it)) } }
+                if (element.type != HudWidgetType.CUSTOM_IMAGE) {
+                    item { EnumChips("Độ đậm", HudFontWeight.entries, element.fontWeight) { onChange(element.copy(fontWeight = it)) } }
+                    item { EnumChips("Căn chỉnh", HudTextAlignment.entries, element.textAlignment) { onChange(element.copy(textAlignment = it)) } }
+                    item { EnumChips("Hướng", HudElementOrientation.entries, element.orientation) { onChange(element.copy(orientation = it)) } }
+                }
                 item {
                     OutlinedButton(onClick = onDelete, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Rounded.Delete, contentDescription = null)
@@ -710,10 +767,13 @@ private fun widgetLabel(type: HudWidgetType): String = when (type) {
     HudWidgetType.ETA -> "Giờ đến dự kiến"
     HudWidgetType.REMAINING -> "Quãng đường còn lại"
     HudWidgetType.GPS -> "Trạng thái GPS"
-    HudWidgetType.CONNECTION -> "Trạng thái Bluetooth"
+    HudWidgetType.CONNECTION -> "Bluetooth + pin"
     HudWidgetType.ALERTS -> "Cảnh báo sắp tới"
     HudWidgetType.LANES -> "Chỉ dẫn làn đường"
     HudWidgetType.TRAFFIC_DELAY -> "Chậm do kẹt xe"
+    HudWidgetType.CUSTOM_TEXT -> "Chữ tùy chỉnh"
+    HudWidgetType.CUSTOM_IMAGE -> "Ảnh tùy chỉnh"
+    HudWidgetType.PHONE_BATTERY -> "Pin điện thoại (cũ)"
 }
 
 private fun widgetHint(type: HudWidgetType): String = when (type) {
@@ -724,6 +784,9 @@ private fun widgetHint(type: HudWidgetType): String = when (type) {
     HudWidgetType.GPS, HudWidgetType.CONNECTION -> "Trạng thái"
     HudWidgetType.ALERTS -> "Cảnh báo"
     HudWidgetType.TRAFFIC_DELAY -> "Giao thông"
+    HudWidgetType.CUSTOM_TEXT -> "Cá nhân hóa"
+    HudWidgetType.CUSTOM_IMAGE -> "Cá nhân hóa"
+    HudWidgetType.PHONE_BATTERY -> "Trạng thái"
 }
 
 private fun shortEnum(name: String): String = when (name) {

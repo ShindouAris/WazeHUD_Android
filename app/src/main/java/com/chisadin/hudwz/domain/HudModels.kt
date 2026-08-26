@@ -72,7 +72,8 @@ data class HudState(
 enum class HudWidgetType {
     SPEED, SPEED_NUMBER, SPEED_LIMIT, SPEED_LIMIT_BAR,
     TURN, NEXT_TURN, DISTANCE, STREET, NEXT_STREET,
-    ETA, REMAINING, GPS, CONNECTION, ALERTS, LANES, TRAFFIC_DELAY
+    ETA, REMAINING, GPS, CONNECTION, ALERTS, LANES, TRAFFIC_DELAY,
+    CUSTOM_TEXT, CUSTOM_IMAGE, PHONE_BATTERY
 }
 
 val HudWidgetType.locksAspectRatio: Boolean
@@ -129,6 +130,8 @@ data class HudElementConfig(
     val iconSizeDp: Float = 72f,
     val spacingDp: Float = 8f,
     val orientation: HudElementOrientation = HudElementOrientation.AUTO,
+    val customText: String = "Chữ tùy chỉnh",
+    val customImageUri: String? = null,
 )
 
 fun defaultHudElement(
@@ -156,10 +159,14 @@ fun defaultHudElement(
         HudWidgetType.STREET, HudWidgetType.NEXT_STREET -> base.copy(widthDp = 250f, heightDp = 42f, fontSizeSp = 20f)
         HudWidgetType.ETA -> base.copy(widthDp = 120f, heightDp = 40f, fontSizeSp = 20f)
         HudWidgetType.REMAINING -> base.copy(widthDp = 260f, heightDp = 42f, fontSizeSp = 17f)
-        HudWidgetType.GPS, HudWidgetType.CONNECTION -> base.copy(widthDp = 120f, heightDp = 38f, iconSizeDp = 21f, fontSizeSp = 12f)
+        HudWidgetType.GPS -> base.copy(widthDp = 120f, heightDp = 38f, iconSizeDp = 21f, fontSizeSp = 12f)
+        HudWidgetType.CONNECTION -> base.copy(widthDp = 160f, heightDp = 42f, iconSizeDp = 24f, fontSizeSp = 15f)
         HudWidgetType.ALERTS -> base.copy(widthDp = 92f, heightDp = 196f, iconSizeDp = 48f, orientation = HudElementOrientation.VERTICAL)
         HudWidgetType.LANES -> base.copy(widthDp = 250f, heightDp = 54f, iconSizeDp = 24f)
         HudWidgetType.TRAFFIC_DELAY -> base.copy(widthDp = 176f, heightDp = 62f, iconSizeDp = 46f, fontSizeSp = 22f)
+        HudWidgetType.CUSTOM_TEXT -> base.copy(widthDp = 240f, heightDp = 50f, fontSizeSp = 24f)
+        HudWidgetType.CUSTOM_IMAGE -> base.copy(widthDp = 160f, heightDp = 110f, spacingDp = 0f)
+        HudWidgetType.PHONE_BATTERY -> base.copy(widthDp = 160f, heightDp = 42f, iconSizeDp = 24f, fontSizeSp = 15f)
     }
 }
 
@@ -175,7 +182,7 @@ data class HudProfile(
         fun defaultProfile() = HudProfile(
             id = "default",
             name = "Mặc định",
-            layoutVersion = 2,
+            layoutVersion = 3,
             elements = listOf(
                 HudElementConfig("lanes", HudWidgetType.LANES, 22f, 14f, 250f, 54f),
                 HudElementConfig("turn", HudWidgetType.TURN, 42f, 76f, 120f, 120f, iconSizeDp = 108f),
@@ -192,7 +199,7 @@ data class HudProfile(
         fun minimalProfile() = HudProfile(
             id = "minimal",
             name = "Tối giản",
-            layoutVersion = 2,
+            layoutVersion = 3,
             elements = listOf(
                 HudElementConfig("turn", HudWidgetType.TURN, 42f, 86f, 130f, 130f, iconSizeDp = 117f),
                 HudElementConfig("distance", HudWidgetType.DISTANCE, 36f, 224f, 150f, 44f, fontSizeSp = 28f),
@@ -205,7 +212,7 @@ data class HudProfile(
         fun largeSpeedProfile() = HudProfile(
             id = "large-speed",
             name = "Tốc độ lớn",
-            layoutVersion = 2,
+            layoutVersion = 3,
             elements = listOf(
                 HudElementConfig("speed", HudWidgetType.SPEED, 220f, 18f, 320f, 320f, fontSizeSp = 112f),
                 HudElementConfig("limit", HudWidgetType.SPEED_LIMIT, 570f, 78f, 150f, 150f, fontSizeSp = 56f),
@@ -218,7 +225,7 @@ data class HudProfile(
 fun emptyHudProfile(id: String, name: String): HudProfile = HudProfile(
     id = id,
     name = name,
-    layoutVersion = 2,
+    layoutVersion = 3,
     elements = emptyList(),
 )
 
@@ -226,8 +233,7 @@ const val HUD_REFERENCE_WIDTH_DP = 800f
 const val HUD_REFERENCE_HEIGHT_DP = 360f
 
 fun migrateHudProfile(profile: HudProfile): HudProfile {
-    if (profile.layoutVersion >= 2) return profile
-    return profile.copy(
+    val positioned = if (profile.layoutVersion >= 2) profile else profile.copy(
         layoutVersion = 2,
         elements = profile.elements.map { element ->
             val height = if (element.type.locksAspectRatio) element.widthDp else element.heightDp
@@ -239,6 +245,21 @@ fun migrateHudProfile(profile: HudProfile): HudProfile {
             )
         },
     )
+    if (positioned.layoutVersion >= 3) return positioned
+    val hasConnection = positioned.elements.any { it.type == HudWidgetType.CONNECTION }
+    var convertedBattery = false
+    val mergedElements = positioned.elements.mapNotNull { element ->
+        when {
+            element.type != HudWidgetType.PHONE_BATTERY -> element
+            hasConnection -> null
+            !convertedBattery -> {
+                convertedBattery = true
+                element.copy(type = HudWidgetType.CONNECTION)
+            }
+            else -> null
+        }
+    }
+    return positioned.copy(layoutVersion = 3, elements = mergedElements)
 }
 
 @Serializable

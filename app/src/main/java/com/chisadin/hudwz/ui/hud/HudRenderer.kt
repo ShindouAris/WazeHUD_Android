@@ -1,7 +1,13 @@
 package com.chisadin.hudwz.ui.hud
 
-import android.provider.Settings
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.BitmapFactory
+import android.net.Uri
+import android.os.BatteryManager
+import android.provider.Settings
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -12,7 +18,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,18 +33,22 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.BluetoothConnected
-import androidx.compose.material.icons.rounded.BluetoothDisabled
 import androidx.compose.material.icons.rounded.GpsFixed
 import androidx.compose.material.icons.rounded.GpsOff
+import androidx.compose.material.icons.rounded.Image as ImageIcon
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -58,6 +68,7 @@ import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
@@ -69,6 +80,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.chisadin.hudwz.domain.HudAlert
 import com.chisadin.hudwz.domain.HudElementConfig
 import com.chisadin.hudwz.domain.HudElementOrientation
@@ -91,6 +103,8 @@ import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.min
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun HudRenderer(
@@ -103,6 +117,7 @@ fun HudRenderer(
     selectedId: String? = null,
     showInactiveInEditor: Boolean = false,
     onSelect: (String) -> Unit = {},
+    onDoubleTap: (String) -> Unit = {},
     onElementChange: (HudElementConfig) -> Unit = {},
 ) {
     BoxWithConstraints(
@@ -120,6 +135,7 @@ fun HudRenderer(
             .filter { it.visible || (editing && showInactiveInEditor) }
             .filter { shouldRenderWidget(it.type, state) || (editing && showInactiveInEditor) }
             .forEach { element ->
+            val latestElement by rememberUpdatedState(element)
             val widthDp = element.widthDp * element.scale * profileScale
             val sourceHeightDp = if (element.type.locksAspectRatio) element.widthDp else element.heightDp
             val heightDp = sourceHeightDp * element.scale * profileScale
@@ -133,21 +149,24 @@ fun HudRenderer(
                 .semantics { contentDescription = widgetDescription(element.type, state) }
             if (editing) {
                 elementModifier = elementModifier
-                    .clickable { onSelect(element.id) }
+                    .combinedClickable(
+                        onClick = { onSelect(element.id) },
+                        onDoubleClick = { onDoubleTap(element.id) },
+                    )
                     .pointerInput(element.id, maxX, maxY) {
                         var dragX = element.x
                         var dragY = element.y
                         detectDragGestures(
                             onDragStart = {
-                                dragX = element.x
-                                dragY = element.y
-                                onSelect(element.id)
+                                dragX = latestElement.x
+                                dragY = latestElement.y
+                                onSelect(latestElement.id)
                             },
                         ) { change, amount ->
                             change.consume()
                             dragX = (dragX + amount.x / density.density).coerceIn(0f, maxX)
                             dragY = (dragY + amount.y / density.density).coerceIn(0f, maxY)
-                            onElementChange(element.copy(x = dragX, y = dragY))
+                            onElementChange(latestElement.copy(x = dragX, y = dragY))
                         }
                     }
             }
@@ -249,6 +268,7 @@ private fun ResizeHandle(
     onElementChange: (HudElementConfig) -> Unit,
 ) {
     val density = LocalDensity.current
+    val latestElement by rememberUpdatedState(element)
     Box(
         modifier = modifier
             .size(22.dp)
@@ -256,33 +276,38 @@ private fun ResizeHandle(
             .background(HudSurface)
             .border(2.dp, HudCyan, CircleShape)
             .pointerInput(element.id) {
-                var width = element.widthDp
-                var height = if (aspectLocked) element.widthDp else element.heightDp
-                detectDragGestures { change, amount ->
+                var width = latestElement.widthDp
+                var height = if (aspectLocked) latestElement.widthDp else latestElement.heightDp
+                detectDragGestures(
+                    onDragStart = {
+                        width = latestElement.widthDp
+                        height = if (aspectLocked) latestElement.widthDp else latestElement.heightDp
+                    },
+                ) { change, amount ->
                     change.consume()
                     if (aspectLocked) {
                         val delta = with(density) { ((amount.x + amount.y) / 2f).toDp().value } / densityScale
                         width = (width + delta).coerceIn(28f, 500f)
                         height = width
                         onElementChange(
-                            element.copy(
+                            latestElement.copy(
                                 widthDp = width,
                                 heightDp = height,
                                 iconSizeDp = width * .9f,
                                 scale = 1f,
-                                x = element.x.coerceAtMost((canvasWidthDp - width * densityScale).coerceAtLeast(0f)),
-                                y = element.y.coerceAtMost((canvasHeightDp - height * densityScale).coerceAtLeast(0f)),
+                                x = latestElement.x.coerceAtMost((canvasWidthDp - width * densityScale).coerceAtLeast(0f)),
+                                y = latestElement.y.coerceAtMost((canvasHeightDp - height * densityScale).coerceAtLeast(0f)),
                             ),
                         )
                     } else {
                         width = (width + with(density) { amount.x.toDp().value } / densityScale).coerceIn(32f, 600f)
                         height = (height + with(density) { amount.y.toDp().value } / densityScale).coerceIn(28f, 500f)
                         onElementChange(
-                            element.copy(
+                            latestElement.copy(
                                 widthDp = width,
                                 heightDp = height,
-                                x = element.x.coerceAtMost((canvasWidthDp - width * element.scale * densityScale).coerceAtLeast(0f)),
-                                y = element.y.coerceAtMost((canvasHeightDp - height * element.scale * densityScale).coerceAtLeast(0f)),
+                                x = latestElement.x.coerceAtMost((canvasWidthDp - width * latestElement.scale * densityScale).coerceAtLeast(0f)),
+                                y = latestElement.y.coerceAtMost((canvasHeightDp - height * latestElement.scale * densityScale).coerceAtLeast(0f)),
                             ),
                         )
                     }
@@ -318,7 +343,7 @@ private fun HudWidget(
             HudWidgetType.NEXT_TURN -> ManeuverWidget(state.nextTurn, null, config)
             HudWidgetType.DISTANCE -> HudTextWidget(formatDistance(state.distanceMeters), config, globalFontScale, weight, align)
             HudWidgetType.STREET -> HudTextWidget(
-                state.street.orEmpty().ifBlank { "—" },
+                state.street.orEmpty().ifBlank { "Cầu đường chưa đặt tên" },
                 config,
                 globalFontScale,
                 weight,
@@ -326,7 +351,7 @@ private fun HudWidget(
                 marquee = true,
             )
             HudWidgetType.NEXT_STREET -> HudTextWidget(
-                state.nextStreet.orEmpty().ifBlank { "—" },
+                state.nextStreet.orEmpty().ifBlank { "Cầu đường chưa đặt tên" },
                 config,
                 globalFontScale,
                 weight,
@@ -336,10 +361,19 @@ private fun HudWidget(
             HudWidgetType.ETA -> HudTextWidget(state.eta ?: "--:--", config, globalFontScale, weight, align)
             HudWidgetType.REMAINING -> HudTextWidget(remainingText(state), config, globalFontScale, weight, align)
             HudWidgetType.GPS -> StatusIcon(state.gpsAvailable, true, config)
-            HudWidgetType.CONNECTION -> StatusIcon(state.connected, false, config)
+            HudWidgetType.CONNECTION -> ConnectivityBatteryWidget(state.connected, config)
             HudWidgetType.ALERTS -> AlertRail(state.alerts, config)
             HudWidgetType.LANES -> LaneStrip(state.lanes)
             HudWidgetType.TRAFFIC_DELAY -> TrafficDelayWidget(state.trafficDelayMinutes, state.trafficSeverity, config, globalFontScale)
+            HudWidgetType.CUSTOM_TEXT -> HudTextWidget(
+                config.customText.ifBlank { "Chữ tùy chỉnh" },
+                config,
+                globalFontScale,
+                weight,
+                align,
+            )
+            HudWidgetType.CUSTOM_IMAGE -> CustomImageWidget(config.customImageUri, config.spacingDp)
+            HudWidgetType.PHONE_BATTERY -> ConnectivityBatteryWidget(state.connected, config)
         }
     }
 }
@@ -441,7 +475,7 @@ private fun TrafficDelayWidget(
                         color = HudText,
                         fontSize = textSize.sp,
                         fontWeight = FontWeight.Black,
-                        fontFamily = numberFont,
+                        fontFamily = textFont,
                         maxLines = 1,
                     )
                     Text(
@@ -671,6 +705,126 @@ private fun HudTextWidget(
 }
 
 @Composable
+private fun CustomImageWidget(uri: String?, spacingDp: Float) {
+    val bitmap = rememberCustomImageBitmap(uri)
+    Box(Modifier.fillMaxSize().padding(spacingDp.dp), contentAlignment = Alignment.Center) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap,
+                contentDescription = "Ảnh tùy chỉnh",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Icon(
+                Icons.Rounded.ImageIcon,
+                contentDescription = "Chưa chọn ảnh tùy chỉnh",
+                tint = HudMuted.copy(alpha = .38f),
+                modifier = Modifier.fillMaxSize().padding(10.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ConnectivityBatteryWidget(connected: Boolean, config: HudElementConfig) {
+    val battery = rememberPhoneBatteryState()
+    val numberFont = rememberHudNumberFont()
+    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        val compact = maxWidth.value < 105f || maxHeight.value < 32f
+        val availableHeight = maxHeight.value
+        val iconHeight = min(config.iconSizeDp, maxHeight.value * .62f).coerceAtLeast(8f)
+        val batteryColor = if (battery.percent <= 20 && !battery.charging) HudRed else HudCyan
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(maxHeight / 2))
+                .background(HudSurface.copy(alpha = .92f))
+                .border(1.dp, HudMuted.copy(alpha = .22f), RoundedCornerShape(maxHeight / 2))
+                .padding(horizontal = if (compact) 5.dp else 8.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp),
+        ) {
+            BluetoothSignalBars(
+                active = connected,
+                modifier = Modifier.size(iconHeight.dp),
+            )
+            Box(
+                Modifier
+                    .size(1.dp, (iconHeight * .86f).dp)
+                    .background(HudMuted.copy(alpha = .42f)),
+            )
+            BatteryGauge(
+                percent = battery.percent,
+                charging = battery.charging,
+                color = batteryColor,
+                modifier = Modifier.size((iconHeight * 1.48f).dp, iconHeight.dp),
+            )
+            if (!compact) {
+                Text(
+                    text = "${battery.percent}%",
+                    color = HudText,
+                    fontSize = min(config.fontSizeSp, availableHeight * .36f).coerceAtLeast(7f).sp,
+                    fontWeight = FontWeight.Black,
+                    fontFamily = numberFont,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BatteryGauge(
+    percent: Int,
+    charging: Boolean,
+    color: Color,
+    modifier: Modifier,
+) {
+    Canvas(modifier) {
+        val stroke = (size.minDimension * .09f).coerceAtLeast(1f)
+        val terminalWidth = size.width * .08f
+        val gap = size.width * .035f
+        val bodyWidth = size.width - terminalWidth - gap
+        val radius = androidx.compose.ui.geometry.CornerRadius(size.height * .16f)
+        drawRoundRect(
+            color = HudMuted,
+            size = Size(bodyWidth, size.height),
+            cornerRadius = radius,
+            style = Stroke(stroke),
+        )
+        drawRoundRect(
+            color = HudMuted,
+            topLeft = Offset(bodyWidth + gap, size.height * .27f),
+            size = Size(terminalWidth, size.height * .46f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(terminalWidth * .3f),
+        )
+        val inset = stroke * 1.8f
+        val fillWidth = ((bodyWidth - inset * 2f) * (percent.coerceIn(0, 100) / 100f)).coerceAtLeast(0f)
+        if (fillWidth > 0f) {
+            drawRoundRect(
+                color = color,
+                topLeft = Offset(inset, inset),
+                size = Size(fillWidth, (size.height - inset * 2f).coerceAtLeast(0f)),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height * .09f),
+            )
+        }
+        if (charging) {
+            val centerX = bodyWidth * .5f
+            val path = Path().apply {
+                moveTo(centerX + size.height * .05f, size.height * .15f)
+                lineTo(centerX - size.height * .18f, size.height * .52f)
+                lineTo(centerX, size.height * .52f)
+                lineTo(centerX - size.height * .05f, size.height * .86f)
+                lineTo(centerX + size.height * .2f, size.height * .43f)
+                lineTo(centerX + size.height * .02f, size.height * .43f)
+                close()
+            }
+            drawPath(path, Color.Black.copy(alpha = .78f))
+        }
+    }
+}
+
+@Composable
 private fun StatusIcon(active: Boolean, gps: Boolean, config: HudElementConfig) {
     BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         val compact = maxWidth.value < 72f || maxHeight.value < 32f
@@ -685,16 +839,19 @@ private fun StatusIcon(active: Boolean, gps: Boolean, config: HudElementConfig) 
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(if (compact) 0.dp else 6.dp),
         ) {
-            Icon(
-                imageVector = if (gps) {
-                    if (active) Icons.Rounded.GpsFixed else Icons.Rounded.GpsOff
-                } else {
-                    if (active) Icons.Rounded.BluetoothConnected else Icons.Rounded.BluetoothDisabled
-                },
-                contentDescription = null,
-                tint = if (active) HudCyan else HudRed,
-                modifier = Modifier.size(iconSize.dp),
-            )
+            if (gps) {
+                Icon(
+                    imageVector = if (active) Icons.Rounded.GpsFixed else Icons.Rounded.GpsOff,
+                    contentDescription = null,
+                    tint = if (active) HudCyan else HudRed,
+                    modifier = Modifier.size(iconSize.dp),
+                )
+            } else {
+                BluetoothSignalBars(
+                    active = active,
+                    modifier = Modifier.size(iconSize.dp),
+                )
+            }
             if (!compact) {
                 Text(
                     if (gps) "GPS" else if (active) "KẾT NỐI" else "MẤT KẾT NỐI",
@@ -703,6 +860,24 @@ private fun StatusIcon(active: Boolean, gps: Boolean, config: HudElementConfig) 
                     fontSize = min(config.fontSizeSp, availableHeight * .3f).coerceAtLeast(6f).sp,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun BluetoothSignalBars(active: Boolean, modifier: Modifier) {
+    Canvas(modifier) {
+        val heights = listOf(.28f, .48f, .70f, .94f)
+        val gap = size.width * .08f
+        val barWidth = ((size.width - gap * (heights.size - 1)) / heights.size).coerceAtLeast(1f)
+        heights.forEachIndexed { index, fraction ->
+            val height = size.height * fraction
+            drawRoundRect(
+                color = if (active) HudCyan else if (index == 0) HudRed else HudMuted.copy(alpha = .2f),
+                topLeft = Offset(index * (barWidth + gap), size.height - height),
+                size = Size(barWidth, height),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(barWidth * .36f),
+            )
         }
     }
 }
@@ -901,10 +1076,13 @@ private fun widgetDescription(type: HudWidgetType, state: HudState): String = wh
     HudWidgetType.ETA -> "Giờ đến dự kiến ${state.eta.orEmpty()}"
     HudWidgetType.REMAINING -> remainingText(state)
     HudWidgetType.GPS -> if (state.gpsAvailable) "GPS khả dụng" else "Không có GPS"
-    HudWidgetType.CONNECTION -> if (state.connected) "Bluetooth đã kết nối" else "Bluetooth đã ngắt kết nối"
+    HudWidgetType.CONNECTION -> "Bluetooth ${if (state.connected) "đã kết nối" else "đã ngắt kết nối"} và pin điện thoại"
     HudWidgetType.ALERTS -> "${state.alerts.size} cảnh báo sắp tới"
     HudWidgetType.LANES -> "Chỉ dẫn làn đường, ${state.lanes.size} làn"
     HudWidgetType.TRAFFIC_DELAY -> "Chậm ${state.trafficDelayMinutes ?: 0} phút do kẹt xe"
+    HudWidgetType.CUSTOM_TEXT -> "Chữ tùy chỉnh"
+    HudWidgetType.CUSTOM_IMAGE -> "Ảnh tùy chỉnh"
+    HudWidgetType.PHONE_BATTERY -> "Bluetooth và pin điện thoại"
 }
 
 private fun shouldRenderWidget(type: HudWidgetType, state: HudState): Boolean = when (type) {
@@ -921,6 +1099,7 @@ private fun shouldRenderWidget(type: HudWidgetType, state: HudState): Boolean = 
     HudWidgetType.ALERTS -> state.alerts.isNotEmpty()
     HudWidgetType.LANES -> state.lanes.isNotEmpty()
     HudWidgetType.TRAFFIC_DELAY -> (state.trafficDelayMinutes ?: 0) > 0
+    HudWidgetType.CUSTOM_TEXT, HudWidgetType.CUSTOM_IMAGE, HudWidgetType.PHONE_BATTERY -> true
 }
 
 private fun formatDistance(meters: Int?): String = when {
@@ -958,6 +1137,65 @@ private fun rememberAssetBitmap(path: String?): ImageBitmap? {
             }.getOrNull()
         }
     }
+}
+
+@Composable
+private fun rememberCustomImageBitmap(uriValue: String?): ImageBitmap? {
+    val context = LocalContext.current
+    val bitmap by produceState<ImageBitmap?>(initialValue = null, key1 = uriValue) {
+        value = withContext(Dispatchers.IO) {
+            uriValue?.let { value -> decodeSampledBitmap(context, Uri.parse(value)) }
+        }
+    }
+    return bitmap
+}
+
+private fun decodeSampledBitmap(context: Context, uri: Uri, maxDimension: Int = 2048): ImageBitmap? = runCatching {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+    var sampleSize = 1
+    while (bounds.outWidth / sampleSize > maxDimension || bounds.outHeight / sampleSize > maxDimension) {
+        sampleSize *= 2
+    }
+    val options = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+    context.contentResolver.openInputStream(uri)?.use {
+        BitmapFactory.decodeStream(it, null, options)?.asImageBitmap()
+    }
+}.getOrNull()
+
+private data class PhoneBatteryState(val percent: Int, val charging: Boolean)
+
+@Composable
+private fun rememberPhoneBatteryState(): PhoneBatteryState {
+    val context = LocalContext.current
+    var state by remember { mutableStateOf(PhoneBatteryState(0, false)) }
+    DisposableEffect(context) {
+        val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(receiverContext: Context?, intent: Intent?) {
+                if (intent != null) state = intent.toPhoneBatteryState()
+            }
+        }
+        val sticky = ContextCompat.registerReceiver(
+            context,
+            receiver,
+            filter,
+            ContextCompat.RECEIVER_EXPORTED,
+        )
+        if (sticky != null) state = sticky.toPhoneBatteryState()
+        onDispose { runCatching { context.unregisterReceiver(receiver) } }
+    }
+    return state
+}
+
+private fun Intent.toPhoneBatteryState(): PhoneBatteryState {
+    val level = getIntExtra(BatteryManager.EXTRA_LEVEL, 0)
+    val scale = getIntExtra(BatteryManager.EXTRA_SCALE, 100).coerceAtLeast(1)
+    val status = getIntExtra(BatteryManager.EXTRA_STATUS, BatteryManager.BATTERY_STATUS_UNKNOWN)
+    return PhoneBatteryState(
+        percent = (level * 100f / scale).roundToInt().coerceIn(0, 100),
+        charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL,
+    )
 }
 
 private fun turnAsset(turn: TurnType): String? = when (turn) {
