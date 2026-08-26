@@ -115,28 +115,28 @@ fun ConnectionScreen(
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Bluetooth HUD", style = MaterialTheme.typography.headlineLarge)
-                Text(connection.message ?: "Choose an HLP data source", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Kết nối Bluetooth HUD", style = MaterialTheme.typography.headlineLarge)
+                Text(connection.message ?: "Chọn nguồn dữ liệu HLP", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (connection.phase == ConnectionPhase.CONNECTED) {
-                Button(onClick = onOpenHud) { Icon(Icons.Rounded.BluetoothConnected, null); Text(" Open HUD") }
+                Button(onClick = onOpenHud) { Icon(Icons.Rounded.BluetoothConnected, null); Text(" Mở HUD") }
             }
         }
         ConnectionSummary(connection)
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Receive from Waze Mod", style = MaterialTheme.typography.titleLarge)
+                Text("Nhận dữ liệu từ Waze Mod", style = MaterialTheme.typography.titleLarge)
                 Text(
-                    "Start a receiver here, then select this Android device in Waze Mod → HUD Link on a different phone. Bluetooth cannot link two apps on the same phone.",
+                    "Bật bộ nhận tại đây, sau đó chọn thiết bị Android này trong Waze Mod → HUD Link trên điện thoại khác. Bluetooth không thể liên kết hai ứng dụng trên cùng một điện thoại.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { requestListen(TransportType.BLE) }) {
                         Icon(Icons.Rounded.Bluetooth, contentDescription = null)
-                        Text(" Start BLE receiver")
+                        Text(" Bật bộ nhận BLE")
                     }
                     FilledTonalButton(onClick = { requestListen(TransportType.CLASSIC) }) {
-                        Text("Start Classic SPP receiver")
+                        Text("Bật bộ nhận Classic SPP")
                     }
                 }
             }
@@ -145,26 +145,26 @@ fun ConnectionScreen(
             Button(onClick = if (scanning) onStopScan else ::requestScan) {
                 if (scanning) CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.padding(end = 8.dp))
                 else Icon(Icons.Rounded.Refresh, contentDescription = null)
-                Text(if (scanning) " Stop" else " Scan BLE")
+                Text(if (scanning) " Dừng" else " Quét BLE")
             }
             OutlinedButton(onClick = {
                 enableBluetooth.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
-            }) { Icon(Icons.Rounded.Bluetooth, null); Text(" Enable") }
+            }) { Icon(Icons.Rounded.Bluetooth, null); Text(" Bật Bluetooth") }
             if (connection.phase == ConnectionPhase.CONNECTED || connection.phase == ConnectionPhase.CONNECTING || connection.phase == ConnectionPhase.RECONNECTING) {
-                OutlinedButton(onClick = onDisconnect) { Text("Disconnect") }
+                OutlinedButton(onClick = onDisconnect) { Text("Ngắt kết nối") }
             }
             if (settings.preferredDeviceAddress != null) {
-                OutlinedButton(onClick = onForget) { Text("Forget saved") }
+                OutlinedButton(onClick = onForget) { Text("Quên thiết bị") }
             }
         }
-        Text("Connect as client (advanced)", style = MaterialTheme.typography.titleLarge)
+        Text("Kết nối ở chế độ máy khách (nâng cao)", style = MaterialTheme.typography.titleLarge)
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(devices, key = { "${it.transport}:${it.address}" }) { device ->
                 DeviceCard(device, connected = connection.device?.address == device.address, onConnect = { requestConnect(device) })
             }
             if (devices.isEmpty()) item {
                 Card(Modifier.fillMaxWidth()) {
-                    Text("No HLP devices found. Pair Classic SPP devices in Android settings, or start BLE advertising with the fixed HLP service UUID.", Modifier.padding(20.dp))
+                    Text("Không tìm thấy thiết bị HLP. Hãy ghép đôi thiết bị Classic SPP trong cài đặt Android hoặc bật quảng bá BLE với UUID dịch vụ HLP cố định.", Modifier.padding(20.dp))
                 }
             }
         }
@@ -181,8 +181,8 @@ private fun ConnectionSummary(connection: ConnectionState) {
                 tint = if (connection.phase == ConnectionPhase.CONNECTED) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Column(Modifier.padding(start = 12.dp)) {
-                Text(connection.phase.name, style = MaterialTheme.typography.titleLarge)
-                Text(listOfNotNull(connection.device?.name, connection.transport?.name, connection.message).joinToString(" · "))
+                Text(connectionPhaseLabel(connection.phase), style = MaterialTheme.typography.titleLarge)
+                Text(listOfNotNull(connection.device?.name, connection.transport?.let(::transportLabel), connection.message).joinToString(" · "))
             }
         }
     }
@@ -195,7 +195,7 @@ private fun DeviceCard(device: BluetoothDeviceInfo, connected: Boolean, onConnec
             Icon(if (connected) Icons.Rounded.BluetoothConnected else Icons.Rounded.Bluetooth, contentDescription = null)
             Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                 Text(device.name, style = MaterialTheme.typography.titleLarge)
-                Text("${device.transport} · ${device.address}${if (device.bonded) " · Paired" else ""}")
+                Text("${transportLabel(device.transport)} · ${device.address}${if (device.bonded) " · Đã ghép đôi" else ""}")
                 device.rssi?.let {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.SignalCellularAlt, contentDescription = null)
@@ -204,8 +204,24 @@ private fun DeviceCard(device: BluetoothDeviceInfo, connected: Boolean, onConnec
                 }
             }
             FilledTonalButton(onClick = onConnect, enabled = !connected) {
-                Text(if (connected) "Connected" else "Connect")
+                Text(if (connected) "Đã kết nối" else "Kết nối")
             }
         }
     }
+}
+
+private fun connectionPhaseLabel(phase: ConnectionPhase): String = when (phase) {
+    ConnectionPhase.IDLE -> "Chưa kết nối"
+    ConnectionPhase.SCANNING -> "Đang quét"
+    ConnectionPhase.CONNECTING -> "Đang kết nối"
+    ConnectionPhase.CONNECTED -> "Đã kết nối"
+    ConnectionPhase.RECONNECTING -> "Đang kết nối lại"
+    ConnectionPhase.DISCONNECTING -> "Đang ngắt kết nối"
+    ConnectionPhase.ERROR -> "Lỗi"
+}
+
+private fun transportLabel(type: TransportType): String = when (type) {
+    TransportType.AUTO -> "Tự động"
+    TransportType.BLE -> "BLE"
+    TransportType.CLASSIC -> "Classic SPP"
 }

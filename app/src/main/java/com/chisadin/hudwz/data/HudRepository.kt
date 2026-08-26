@@ -33,7 +33,7 @@ class HudRepository(
     private val _rawPackets = MutableStateFlow<List<String>>(emptyList())
     val rawPackets: StateFlow<List<String>> = _rawPackets.asStateFlow()
 
-    private val _parsedPacket = MutableStateFlow("No packet parsed")
+    private val _parsedPacket = MutableStateFlow("Chưa phân tích gói tin nào")
     val parsedPacket: StateFlow<String> = _parsedPacket.asStateFlow()
 
     private var sessionId: Long? = null
@@ -84,7 +84,7 @@ class HudRepository(
                                         sessionId = message.sessionId
                                         _hudState.update { HudState(connected = it.connected, sessionId = sessionId) }
                                     }
-                                    _parsedPacket.value = "HELLO session=${message.sessionId} rate=${message.rate}Hz"
+                                    _parsedPacket.value = "HELLO phiên=${message.sessionId} tốc độ=${message.rate}Hz"
                                 }
                                 is HlpProtocol.Message.State -> {
                                     val currentSession = sessionId
@@ -93,13 +93,13 @@ class HudRepository(
                                     if (currentSession != current.sessionId || next.sourceTimestampMs >= current.sourceTimestampMs) {
                                         _hudState.value = next
                                     }
-                                    _parsedPacket.value = "speed=${next.speed} limit=${next.speedLimit} turn=${next.turn.name} alerts=${next.alerts.size}"
+                                    _parsedPacket.value = "tốc độ=${next.speed} giới hạn=${next.speedLimit} hướng=${next.turn.name} cảnh báo=${next.alerts.size}"
                                 }
                                 HlpProtocol.Message.Ping -> replies += protocol.pong()
                                 HlpProtocol.Message.Pong -> _parsedPacket.value = "PONG"
                                 HlpProtocol.Message.Bye -> _parsedPacket.value = "BYE"
                                 is HlpProtocol.Message.Error -> parserError("${message.code}: ${message.detail.orEmpty()}")
-                                is HlpProtocol.Message.Other -> _parsedPacket.value = "Ignored ${message.type}"
+                                is HlpProtocol.Message.Other -> _parsedPacket.value = "Đã bỏ qua ${message.type}"
                             }
                         }
                         .onFailure { parserError(it.message ?: "INVALID_JSON") }
@@ -120,7 +120,7 @@ class HudRepository(
 
     private fun parserError(reason: String) {
         _metrics.update { it.copy(parserErrors = it.parserErrors + 1) }
-        log("Protocol", reason)
+        log("Giao thức", reason)
     }
 
     private fun recordPacket(line: String) {

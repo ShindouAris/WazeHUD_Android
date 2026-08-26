@@ -25,7 +25,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.chisadin.hudwz.domain.ConnectionState
+import com.chisadin.hudwz.domain.ConnectionPhase
 import com.chisadin.hudwz.domain.DiagnosticEvent
+import com.chisadin.hudwz.domain.TransportType
 import com.chisadin.hudwz.domain.TransportMetrics
 
 @Composable
@@ -45,33 +47,33 @@ fun DebugScreen(
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth()) {
             Column(Modifier.weight(1f)) {
-                Text("Diagnostics", style = MaterialTheme.typography.headlineLarge)
-                Text("Bluetooth and HLP/1 observability", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Chẩn đoán", style = MaterialTheme.typography.headlineLarge)
+                Text("Theo dõi Bluetooth và HLP/1", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Button(onClick = {
                 context.startActivity(
                     Intent.createChooser(
                         Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, diagnostics()),
-                        "Export diagnostics",
+                        "Xuất dữ liệu chẩn đoán",
                     ),
                 )
-            }) { androidx.compose.material3.Icon(Icons.Rounded.Share, null); Text(" Export") }
+            }) { androidx.compose.material3.Icon(Icons.Rounded.Share, null); Text(" Xuất") }
         }
         MetricCard(connection, metrics, parsedPacket)
         OutlinedTextField(
             value = packet,
             onValueChange = { packet = it },
-            label = { Text("Inject local HLP frame") },
+            label = { Text("Chèn khung HLP cục bộ") },
             modifier = Modifier.fillMaxWidth(),
             minLines = 2,
         )
-        Button(onClick = { onInject(packet) }) { Text("Parse frame") }
-        Text("Recent activity", style = MaterialTheme.typography.titleLarge)
+        Button(onClick = { onInject(packet) }) { Text("Phân tích khung") }
+        Text("Hoạt động gần đây", style = MaterialTheme.typography.titleLarge)
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             items(events.takeLast(100).reversed(), key = { "${it.elapsedMs}:${it.message}" }) { event ->
                 Text("${event.category} · ${event.message}", style = MaterialTheme.typography.bodyLarge)
             }
-            if (rawPackets.isNotEmpty()) item { Text("Raw packets", style = MaterialTheme.typography.titleLarge) }
+            if (rawPackets.isNotEmpty()) item { Text("Gói tin thô", style = MaterialTheme.typography.titleLarge) }
             items(rawPackets.takeLast(30).reversed()) { raw ->
                 Card(Modifier.fillMaxWidth()) { Text(raw, Modifier.padding(8.dp), style = MaterialTheme.typography.labelSmall) }
             }
@@ -83,13 +85,29 @@ fun DebugScreen(
 private fun MetricCard(connection: ConnectionState, metrics: TransportMetrics, parsed: String) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Bluetooth: ${connection.phase}", style = MaterialTheme.typography.titleLarge)
-            Text("Device: ${connection.device?.name ?: "None"}")
-            Text("Transport: ${connection.transport ?: "None"}")
-            Text("MTU: ${metrics.mtu ?: "N/A"}")
-            Text("Packets: ${metrics.packetCount} · ${"%.1f".format(metrics.packetRate)}/s")
-            Text("Parser errors: ${metrics.parserErrors}")
-            Text("Parsed: $parsed")
+            Text("Bluetooth: ${phaseLabel(connection.phase)}", style = MaterialTheme.typography.titleLarge)
+            Text("Thiết bị: ${connection.device?.name ?: "Không có"}")
+            Text("Kiểu kết nối: ${connection.transport?.let(::transportLabel) ?: "Không có"}")
+            Text("MTU: ${metrics.mtu ?: "Không có"}")
+            Text("Gói tin: ${metrics.packetCount} · ${"%.1f".format(metrics.packetRate)}/giây")
+            Text("Lỗi phân tích: ${metrics.parserErrors}")
+            Text("Dữ liệu đã phân tích: $parsed")
         }
     }
+}
+
+private fun phaseLabel(phase: ConnectionPhase): String = when (phase) {
+    ConnectionPhase.IDLE -> "Chưa kết nối"
+    ConnectionPhase.SCANNING -> "Đang quét"
+    ConnectionPhase.CONNECTING -> "Đang kết nối"
+    ConnectionPhase.CONNECTED -> "Đã kết nối"
+    ConnectionPhase.RECONNECTING -> "Đang kết nối lại"
+    ConnectionPhase.DISCONNECTING -> "Đang ngắt kết nối"
+    ConnectionPhase.ERROR -> "Lỗi"
+}
+
+private fun transportLabel(type: TransportType): String = when (type) {
+    TransportType.AUTO -> "Tự động"
+    TransportType.BLE -> "BLE"
+    TransportType.CLASSIC -> "Classic SPP"
 }

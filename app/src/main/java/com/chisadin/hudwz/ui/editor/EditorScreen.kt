@@ -213,17 +213,17 @@ fun EditorScreen(
             Modifier.align(Alignment.TopStart).padding(8.dp).zIndex(10f),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            FloatingEditorButton("Back", onBack) {
+            FloatingEditorButton("Quay lại", onBack) {
                 Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null)
             }
-            FloatingEditorButton("Items", {
+            FloatingEditorButton("Thành phần", {
                 libraryOpen = !libraryOpen
                 inspectorOpen = false
                 settingsOpen = false
             }, active = libraryOpen) {
                 Icon(Icons.Rounded.Widgets, contentDescription = null)
             }
-            FloatingEditorButton("Unfocus item", {
+            FloatingEditorButton("Bỏ chọn thành phần", {
                 selectedId = null
                 inspectorOpen = false
             }, enabled = selected != null) {
@@ -234,14 +234,14 @@ fun EditorScreen(
             Modifier.align(Alignment.TopEnd).padding(8.dp).zIndex(10f),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            FloatingEditorButton("Item properties", {
+            FloatingEditorButton("Thuộc tính thành phần", {
                 inspectorOpen = !inspectorOpen
                 libraryOpen = false
                 settingsOpen = false
             }, active = inspectorOpen, enabled = selected != null) {
                 Icon(Icons.Rounded.Tune, contentDescription = null)
             }
-            FloatingEditorButton("HUD settings", {
+            FloatingEditorButton("Cài đặt HUD", {
                 settingsOpen = !settingsOpen
                 libraryOpen = false
                 inspectorOpen = false
@@ -396,10 +396,10 @@ private fun WidgetLibrary(
             ) {
                 Icon(Icons.Rounded.Widgets, contentDescription = null, tint = HudCyan)
                 Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                    Text("Item library", fontSize = 17.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                    Text("Tap to add · hold and drag", fontSize = 10.sp)
+                    Text("Thư viện thành phần", fontSize = 17.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    Text("Chạm để thêm · giữ để kéo", fontSize = 10.sp)
                 }
-                IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, contentDescription = "Close item library") }
+                IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, contentDescription = "Đóng thư viện thành phần") }
             }
             HorizontalDivider(color = HudOutline)
             LazyColumn(
@@ -440,7 +440,7 @@ private fun WidgetLibraryItem(
                     onDragCancel = onCancel,
                 )
             }
-            .semantics { contentDescription = "Add or drag ${widgetLabel(type)}" },
+            .semantics { contentDescription = "Thêm hoặc kéo ${widgetLabel(type)}" },
     ) {
         Row(Modifier.fillMaxSize().padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
@@ -481,8 +481,8 @@ private fun InspectorPanel(
             ) {
                 Icon(Icons.Rounded.Tune, contentDescription = null, tint = HudOutline, modifier = Modifier.size(40.dp))
                 Spacer(Modifier.height(10.dp))
-                Text("Select an item", style = MaterialTheme.typography.titleLarge)
-                Text("Open Items to add widgets, then select one on the canvas.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Chọn một thành phần", style = MaterialTheme.typography.titleLarge)
+                Text("Mở Thư viện để thêm thành phần, sau đó chọn trên vùng xem trước.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
             LazyColumn(
@@ -493,63 +493,63 @@ private fun InspectorPanel(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(widgetLabel(element.type), fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                            Text("Item properties", fontSize = 10.sp, color = HudCyan)
+                            Text("Thuộc tính thành phần", fontSize = 10.sp, color = HudCyan)
                         }
                         IconButton(onClick = onClose) {
-                            Icon(Icons.Rounded.Close, contentDescription = "Close item properties")
+                            Icon(Icons.Rounded.Close, contentDescription = "Đóng thuộc tính thành phần")
                         }
                         IconButton(onClick = onDelete) {
-                            Icon(Icons.Rounded.Delete, contentDescription = "Delete ${widgetLabel(element.type)}", tint = MaterialTheme.colorScheme.error)
+                            Icon(Icons.Rounded.Delete, contentDescription = "Xóa ${widgetLabel(element.type)}", tint = MaterialTheme.colorScheme.error)
                         }
                     }
                 }
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(if (element.visible) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff, contentDescription = null)
-                        Text(" Visible", Modifier.weight(1f))
+                        Text(" Hiển thị", Modifier.weight(1f))
                         Switch(checked = element.visible, onCheckedChange = { onChange(element.copy(visible = it)) })
                     }
                 }
-                item { InspectorSection("Layers") }
+                item { InspectorSection("Lớp") }
                 item { LayerControls(onLayerMove) }
-                item { InspectorSection("Position") }
+                item { InspectorSection("Vị trí") }
                 item {
                     Text(
-                        "x ${element.x.roundToInt()} dp · y ${element.y.roundToInt()} dp · top-left",
+                        "x ${element.x.roundToInt()} dp · y ${element.y.roundToInt()} dp · tính từ góc trên trái",
                         fontSize = 10.sp,
                         color = HudCyan,
                     )
                 }
                 item { PositionControls(element, onChange) }
-                item { InspectorSection("Size") }
+                item { InspectorSection("Kích thước") }
                 if (element.type.locksAspectRatio) {
                     item {
-                        Text("Aspect ratio locked · 1:1", fontSize = 10.sp, color = HudCyan)
+                        Text("Đã khóa tỷ lệ · 1:1", fontSize = 10.sp, color = HudCyan)
                     }
                     item {
-                        InspectorSlider("Size", element.widthDp, 28f..500f, "${element.widthDp.roundToInt()} dp") {
+                        InspectorSlider("Kích thước", element.widthDp, 28f..500f, "${element.widthDp.roundToInt()} dp") {
                             onChange(element.copy(widthDp = it, heightDp = it, iconSizeDp = it * .9f, scale = 1f))
                         }
                     }
                 } else {
-                    item { InspectorSlider("Width", element.widthDp, 32f..600f, "${element.widthDp.roundToInt()} dp") { onChange(element.copy(widthDp = it)) } }
-                    item { InspectorSlider("Height", element.heightDp, 28f..500f, "${element.heightDp.roundToInt()} dp") { onChange(element.copy(heightDp = it)) } }
-                    item { InspectorSlider("Item scale", element.scale, .25f..2f, "${(element.scale * 100).roundToInt()}%") { onChange(element.copy(scale = it)) } }
-                    item { InspectorSlider("Icon", element.iconSizeDp, 4f..220f, "${element.iconSizeDp.roundToInt()} dp") { onChange(element.copy(iconSizeDp = it)) } }
+                    item { InspectorSlider("Chiều rộng", element.widthDp, 32f..600f, "${element.widthDp.roundToInt()} dp") { onChange(element.copy(widthDp = it)) } }
+                    item { InspectorSlider("Chiều cao", element.heightDp, 28f..500f, "${element.heightDp.roundToInt()} dp") { onChange(element.copy(heightDp = it)) } }
+                    item { InspectorSlider("Tỷ lệ thành phần", element.scale, .25f..2f, "${(element.scale * 100).roundToInt()}%") { onChange(element.copy(scale = it)) } }
+                    item { InspectorSlider("Biểu tượng", element.iconSizeDp, 4f..220f, "${element.iconSizeDp.roundToInt()} dp") { onChange(element.copy(iconSizeDp = it)) } }
                 }
-                item { InspectorSection("Appearance") }
-                item { InspectorSlider("Opacity", element.opacity, .1f..1f, "${(element.opacity * 100).roundToInt()}%") { onChange(element.copy(opacity = it)) } }
+                item { InspectorSection("Giao diện") }
+                item { InspectorSlider("Độ mờ", element.opacity, .1f..1f, "${(element.opacity * 100).roundToInt()}%") { onChange(element.copy(opacity = it)) } }
                 if (!element.type.locksAspectRatio || element.type == HudWidgetType.SPEED) {
-                    item { InspectorSlider("Font", element.fontSizeSp, 6f..140f, "${element.fontSizeSp.roundToInt()} sp") { onChange(element.copy(fontSizeSp = it)) } }
+                    item { InspectorSlider("Cỡ chữ", element.fontSizeSp, 6f..140f, "${element.fontSizeSp.roundToInt()} sp") { onChange(element.copy(fontSizeSp = it)) } }
                 }
-                item { InspectorSlider("Spacing", element.spacingDp, 0f..40f, "${element.spacingDp.roundToInt()} dp") { onChange(element.copy(spacingDp = it)) } }
-                item { EnumChips("Weight", HudFontWeight.entries, element.fontWeight) { onChange(element.copy(fontWeight = it)) } }
-                item { EnumChips("Align", HudTextAlignment.entries, element.textAlignment) { onChange(element.copy(textAlignment = it)) } }
-                item { EnumChips("Direction", HudElementOrientation.entries, element.orientation) { onChange(element.copy(orientation = it)) } }
+                item { InspectorSlider("Khoảng cách", element.spacingDp, 0f..40f, "${element.spacingDp.roundToInt()} dp") { onChange(element.copy(spacingDp = it)) } }
+                item { EnumChips("Độ đậm", HudFontWeight.entries, element.fontWeight) { onChange(element.copy(fontWeight = it)) } }
+                item { EnumChips("Căn chỉnh", HudTextAlignment.entries, element.textAlignment) { onChange(element.copy(textAlignment = it)) } }
+                item { EnumChips("Hướng", HudElementOrientation.entries, element.orientation) { onChange(element.copy(orientation = it)) } }
                 item {
                     OutlinedButton(onClick = onDelete, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Rounded.Delete, contentDescription = null)
-                        Text(" Remove item")
+                        Text(" Xóa thành phần")
                     }
                 }
             }
@@ -577,13 +577,13 @@ private fun EditorSettingsPanel(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.Settings, contentDescription = null, tint = HudCyan)
                 Column(Modifier.weight(1f).padding(start = 8.dp)) {
-                    Text("HUD settings", fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    Text("Cài đặt HUD", fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                     Text(profileName, fontSize = 10.sp, color = HudCyan)
                 }
-                IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, contentDescription = "Close HUD settings") }
+                IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, contentDescription = "Đóng cài đặt HUD") }
             }
             HorizontalDivider(color = HudOutline)
-            Text("Preview scale", fontSize = 12.sp)
+            Text("Tỷ lệ xem trước", fontSize = 12.sp)
             Text("${(scale * 100).roundToInt()}%", fontSize = 22.sp, color = HudCyan)
             Slider(value = scale, onValueChange = onScaleChange, valueRange = .5f..1.8f)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -598,13 +598,13 @@ private fun EditorSettingsPanel(
             HorizontalDivider(color = HudOutline)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Show inactive items", fontSize = 12.sp)
-                    Text("Also show profile items marked hidden", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Hiện thành phần đang ẩn", fontSize = 12.sp)
+                    Text("Hiện cả thành phần bị ẩn trong hồ sơ", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Switch(checked = showInactiveItems, onCheckedChange = onShowInactiveChange)
             }
             Text(
-                "Preview fills the screen. Scale changes every HUD item proportionally.",
+                "Bản xem trước lấp đầy màn hình. Tỷ lệ này thay đổi đồng đều mọi thành phần HUD.",
                 fontSize = 10.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -619,21 +619,21 @@ private fun LayerControls(onMove: (HudLayerMove) -> Unit) {
             OutlinedButton(
                 onClick = { onMove(HudLayerMove.BRING_TO_FRONT) },
                 modifier = Modifier.weight(1f),
-            ) { Text("Bring front", fontSize = 10.sp) }
+            ) { Text("Đưa lên đầu", fontSize = 10.sp) }
             OutlinedButton(
                 onClick = { onMove(HudLayerMove.MOVE_UP) },
                 modifier = Modifier.weight(1f),
-            ) { Text("Layer +1", fontSize = 10.sp) }
+            ) { Text("Lên 1 lớp", fontSize = 10.sp) }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             OutlinedButton(
                 onClick = { onMove(HudLayerMove.MOVE_DOWN) },
                 modifier = Modifier.weight(1f),
-            ) { Text("Layer −1", fontSize = 10.sp) }
+            ) { Text("Xuống 1 lớp", fontSize = 10.sp) }
             OutlinedButton(
                 onClick = { onMove(HudLayerMove.SEND_TO_BACK) },
                 modifier = Modifier.weight(1f),
-            ) { Text("Send back", fontSize = 10.sp) }
+            ) { Text("Đưa xuống cuối", fontSize = 10.sp) }
         }
     }
 }
@@ -642,17 +642,17 @@ private fun LayerControls(onMove: (HudLayerMove) -> Unit) {
 private fun PositionControls(element: HudElementConfig, onChange: (HudElementConfig) -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
         OutlinedIconButton(onClick = { onChange(element.copy(y = (element.y - 4f).coerceAtLeast(0f))) }) {
-            Icon(Icons.Rounded.KeyboardArrowUp, contentDescription = "Move up")
+            Icon(Icons.Rounded.KeyboardArrowUp, contentDescription = "Di chuyển lên")
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedIconButton(onClick = { onChange(element.copy(x = (element.x - 4f).coerceAtLeast(0f))) }) {
-                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, contentDescription = "Move left")
+                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, contentDescription = "Di chuyển sang trái")
             }
             OutlinedIconButton(onClick = { onChange(element.copy(y = element.y + 4f)) }) {
-                Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Move down")
+                Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Di chuyển xuống")
             }
             OutlinedIconButton(onClick = { onChange(element.copy(x = element.x + 4f)) }) {
-                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = "Move right")
+                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = "Di chuyển sang phải")
             }
         }
     }
@@ -698,37 +698,44 @@ private fun <T : Enum<T>> EnumChips(label: String, values: List<T>, selected: T,
 private data class LibraryDrag(val type: HudWidgetType, val position: Offset)
 
 private fun widgetLabel(type: HudWidgetType): String = when (type) {
-    HudWidgetType.SPEED -> "Current speed"
-    HudWidgetType.SPEED_NUMBER -> "Speed number"
-    HudWidgetType.SPEED_LIMIT -> "Speed limit"
-    HudWidgetType.SPEED_LIMIT_BAR -> "Speed → limit bar"
-    HudWidgetType.TURN -> "Next maneuver"
-    HudWidgetType.NEXT_TURN -> "Second maneuver"
-    HudWidgetType.DISTANCE -> "Turn distance"
-    HudWidgetType.STREET -> "Current street"
-    HudWidgetType.NEXT_STREET -> "Next street"
-    HudWidgetType.ETA -> "ETA"
-    HudWidgetType.REMAINING -> "Remaining route"
-    HudWidgetType.GPS -> "GPS status"
-    HudWidgetType.CONNECTION -> "Bluetooth status"
-    HudWidgetType.ALERTS -> "Upcoming alerts"
-    HudWidgetType.LANES -> "Lane guidance"
-    HudWidgetType.TRAFFIC_DELAY -> "Traffic delay"
+    HudWidgetType.SPEED -> "Tốc độ hiện tại"
+    HudWidgetType.SPEED_NUMBER -> "Số tốc độ"
+    HudWidgetType.SPEED_LIMIT -> "Giới hạn tốc độ"
+    HudWidgetType.SPEED_LIMIT_BAR -> "Thanh tốc độ → giới hạn"
+    HudWidgetType.TURN -> "Hướng rẽ tiếp theo"
+    HudWidgetType.NEXT_TURN -> "Hướng rẽ thứ hai"
+    HudWidgetType.DISTANCE -> "Khoảng cách tới chỗ rẽ"
+    HudWidgetType.STREET -> "Đường hiện tại"
+    HudWidgetType.NEXT_STREET -> "Đường tiếp theo"
+    HudWidgetType.ETA -> "Giờ đến dự kiến"
+    HudWidgetType.REMAINING -> "Quãng đường còn lại"
+    HudWidgetType.GPS -> "Trạng thái GPS"
+    HudWidgetType.CONNECTION -> "Trạng thái Bluetooth"
+    HudWidgetType.ALERTS -> "Cảnh báo sắp tới"
+    HudWidgetType.LANES -> "Chỉ dẫn làn đường"
+    HudWidgetType.TRAFFIC_DELAY -> "Chậm do kẹt xe"
 }
 
 private fun widgetHint(type: HudWidgetType): String = when (type) {
     HudWidgetType.SPEED, HudWidgetType.SPEED_NUMBER,
-    HudWidgetType.SPEED_LIMIT, HudWidgetType.SPEED_LIMIT_BAR -> "Vehicle"
-    HudWidgetType.TURN, HudWidgetType.NEXT_TURN, HudWidgetType.DISTANCE, HudWidgetType.LANES -> "Navigation"
-    HudWidgetType.STREET, HudWidgetType.NEXT_STREET, HudWidgetType.ETA, HudWidgetType.REMAINING -> "Route"
-    HudWidgetType.GPS, HudWidgetType.CONNECTION -> "Status"
-    HudWidgetType.ALERTS -> "Warnings"
-    HudWidgetType.TRAFFIC_DELAY -> "Traffic"
+    HudWidgetType.SPEED_LIMIT, HudWidgetType.SPEED_LIMIT_BAR -> "Phương tiện"
+    HudWidgetType.TURN, HudWidgetType.NEXT_TURN, HudWidgetType.DISTANCE, HudWidgetType.LANES -> "Điều hướng"
+    HudWidgetType.STREET, HudWidgetType.NEXT_STREET, HudWidgetType.ETA, HudWidgetType.REMAINING -> "Lộ trình"
+    HudWidgetType.GPS, HudWidgetType.CONNECTION -> "Trạng thái"
+    HudWidgetType.ALERTS -> "Cảnh báo"
+    HudWidgetType.TRAFFIC_DELAY -> "Giao thông"
 }
 
 private fun shortEnum(name: String): String = when (name) {
-    "HORIZONTAL" -> "H"
-    "VERTICAL" -> "V"
+    "HORIZONTAL" -> "Ngang"
+    "VERTICAL" -> "Dọc"
+    "AUTO" -> "Tự động"
+    "NORMAL" -> "Thường"
+    "BOLD" -> "Đậm"
+    "BLACK" -> "Rất đậm"
+    "START" -> "Đầu"
+    "CENTER" -> "Giữa"
+    "END" -> "Cuối"
     else -> name.lowercase().replaceFirstChar { it.uppercase() }
 }
 

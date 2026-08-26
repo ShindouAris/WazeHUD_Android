@@ -174,7 +174,7 @@ data class HudProfile(
     companion object {
         fun defaultProfile() = HudProfile(
             id = "default",
-            name = "Default",
+            name = "Mặc định",
             layoutVersion = 2,
             elements = listOf(
                 HudElementConfig("lanes", HudWidgetType.LANES, 22f, 14f, 250f, 54f),
@@ -191,7 +191,7 @@ data class HudProfile(
 
         fun minimalProfile() = HudProfile(
             id = "minimal",
-            name = "Minimal",
+            name = "Tối giản",
             layoutVersion = 2,
             elements = listOf(
                 HudElementConfig("turn", HudWidgetType.TURN, 42f, 86f, 130f, 130f, iconSizeDp = 117f),
@@ -204,7 +204,7 @@ data class HudProfile(
 
         fun largeSpeedProfile() = HudProfile(
             id = "large-speed",
-            name = "Large Speed",
+            name = "Tốc độ lớn",
             layoutVersion = 2,
             elements = listOf(
                 HudElementConfig("speed", HudWidgetType.SPEED, 220f, 18f, 320f, 320f, fontSizeSp = 112f),

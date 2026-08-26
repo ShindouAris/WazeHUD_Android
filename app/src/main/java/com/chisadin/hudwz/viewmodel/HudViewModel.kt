@@ -101,7 +101,7 @@ class HudViewModel(application: Application) : AndroidViewModel(application) {
                 scanner.scanBle().collect { discovered ->
                     _devices.value = mergeDevices(_devices.value, discovered)
                 }
-            }.onFailure { hudRepository.log("Bluetooth", it.message ?: "BLE scan failed") }
+            }.onFailure { hudRepository.log("Bluetooth", it.message ?: "Quét BLE thất bại") }
             _scanning.value = false
         }
     }
@@ -183,13 +183,13 @@ class HudViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun diagnosticsText(): String = buildString {
-        appendLine("Connection: ${connection.value.phase}")
-        appendLine("Device: ${connection.value.device?.name ?: "None"}")
-        appendLine("Transport: ${connection.value.transport ?: "None"}")
-        appendLine("MTU: ${metrics.value.mtu ?: "N/A"}")
-        appendLine("Packets: ${metrics.value.packetCount}")
-        appendLine("Rate: ${"%.1f".format(metrics.value.packetRate)}/s")
-        appendLine("Parser errors: ${metrics.value.parserErrors}")
+        appendLine("Kết nối: ${connection.value.phase}")
+        appendLine("Thiết bị: ${connection.value.device?.name ?: "Không có"}")
+        appendLine("Kiểu kết nối: ${connection.value.transport ?: "Không có"}")
+        appendLine("MTU: ${metrics.value.mtu ?: "Không có"}")
+        appendLine("Gói tin: ${metrics.value.packetCount}")
+        appendLine("Tốc độ nhận: ${"%.1f".format(metrics.value.packetRate)}/giây")
+        appendLine("Lỗi phân tích: ${metrics.value.parserErrors}")
         events.value.takeLast(100).forEach { appendLine("${it.elapsedMs} ${it.category}: ${it.message}") }
     }
 

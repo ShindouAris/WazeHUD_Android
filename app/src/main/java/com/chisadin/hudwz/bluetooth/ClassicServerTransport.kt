@@ -53,7 +53,7 @@ class ClassicServerTransport(private val adapter: BluetoothAdapter) : BluetoothT
             runCatching { listener.close() }
             serverSocket = null
         }
-        val active = socket ?: throw IllegalStateException("SPP accept returned no socket")
+        val active = socket ?: throw IllegalStateException("Không nhận được socket SPP")
         _status.value = TransportStatus.Connected()
         reader = scope.launch {
             val buffer = ByteArray(1024)
@@ -64,7 +64,7 @@ class ClassicServerTransport(private val adapter: BluetoothAdapter) : BluetoothT
                     if (count < 0) break
                     if (count > 0) _incoming.emit(buffer.copyOf(count))
                 }
-                _status.value = TransportStatus.Disconnected("Waze Mod closed SPP")
+                _status.value = TransportStatus.Disconnected("Waze Mod đã đóng SPP")
             } catch (error: Throwable) {
                 if (isActive) _status.value = TransportStatus.Disconnected(error.message)
             }
@@ -72,7 +72,7 @@ class ClassicServerTransport(private val adapter: BluetoothAdapter) : BluetoothT
     }
 
     override suspend fun write(bytes: ByteArray) = writeMutex.withLock {
-        val active = socket ?: throw IllegalStateException("No Waze Mod SPP client connected")
+        val active = socket ?: throw IllegalStateException("Chưa có máy khách Waze Mod SPP kết nối")
         withContext(Dispatchers.IO) {
             active.outputStream.write(bytes)
             active.outputStream.flush()

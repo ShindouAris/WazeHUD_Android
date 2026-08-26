@@ -54,18 +54,18 @@ class BleServerTransport(
 
     private val advertiseCallback = object : AdvertiseCallback() {
         override fun onStartFailure(errorCode: Int) {
-            fail("BLE advertising failed: $errorCode")
+            fail("Quảng bá BLE thất bại: $errorCode")
         }
     }
 
     private val callback = object : BluetoothGattServerCallback() {
         override fun onServiceAdded(status: Int, service: BluetoothGattService) {
-            if (status != BluetoothGatt.GATT_SUCCESS) return fail("Could not publish HLP service: $status")
+            if (status != BluetoothGatt.GATT_SUCCESS) return fail("Không thể công bố dịch vụ HLP: $status")
             startAdvertising()
         }
 
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
-            if (status != BluetoothGatt.GATT_SUCCESS) return fail("BLE peripheral connection error: $status")
+            if (status != BluetoothGatt.GATT_SUCCESS) return fail("Lỗi kết nối thiết bị ngoại vi BLE: $status")
             when (newState) {
                 // A GATT server can receive callbacks for unrelated active LE links. A peer only
                 // becomes the HLP client after it subscribes to our RX CCCD below.
@@ -73,7 +73,7 @@ class BleServerTransport(
                 BluetoothProfile.STATE_DISCONNECTED -> {
                     if (remote?.address == device.address) {
                         remote = null
-                        _status.value = TransportStatus.Disconnected("Waze Mod disconnected")
+                        _status.value = TransportStatus.Disconnected("Waze Mod đã ngắt kết nối")
                     }
                 }
             }
@@ -142,12 +142,12 @@ class BleServerTransport(
     override suspend fun connect(device: BluetoothDeviceInfo, timeoutMillis: Long) {
         disconnect()
         if (!adapter.isMultipleAdvertisementSupported) {
-            throw IllegalStateException("This Android device cannot advertise BLE peripherals")
+            throw IllegalStateException("Thiết bị Android này không hỗ trợ quảng bá ngoại vi BLE")
         }
         ready = CompletableDeferred()
         _status.value = TransportStatus.Connecting
         val activeServer = manager.openGattServer(context, callback)
-            ?: throw IllegalStateException("Could not open BLE GATT server")
+            ?: throw IllegalStateException("Không thể mở máy chủ BLE GATT")
         server = activeServer
         val service = BluetoothGattService(BleTransport.SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY)
         val tx = BluetoothGattCharacteristic(
@@ -171,7 +171,7 @@ class BleServerTransport(
         service.addCharacteristic(rx)
         if (!activeServer.addService(service)) {
             disconnect()
-            throw IllegalStateException("Could not add HLP GATT service")
+            throw IllegalStateException("Không thể thêm dịch vụ HLP GATT")
         }
         try {
             ready.await()
@@ -182,9 +182,9 @@ class BleServerTransport(
     }
 
     override suspend fun write(bytes: ByteArray) = writeMutex.withLock {
-        val activeServer = server ?: throw IllegalStateException("BLE receiver is not running")
-        val activeDevice = remote ?: throw IllegalStateException("No Waze Mod client connected")
-        val characteristic = rx ?: throw IllegalStateException("HLP RX unavailable")
+        val activeServer = server ?: throw IllegalStateException("Bộ nhận BLE chưa chạy")
+        val activeDevice = remote ?: throw IllegalStateException("Chưa có máy khách Waze Mod kết nối")
+        val characteristic = rx ?: throw IllegalStateException("HLP RX không khả dụng")
         val chunkSize = (mtu - 3).coerceAtLeast(20)
         var offset = 0
         while (offset < bytes.size) {
@@ -199,9 +199,9 @@ class BleServerTransport(
                 @Suppress("DEPRECATION")
                 activeServer.notifyCharacteristicChanged(activeDevice, characteristic, false)
             }
-            if (!started) throw IllegalStateException("BLE notification could not start")
+            if (!started) throw IllegalStateException("Không thể bắt đầu thông báo BLE")
             val resultStatus = withTimeout(3_000) { result.await() }
-            if (resultStatus != BluetoothGatt.GATT_SUCCESS) throw IllegalStateException("BLE notification failed: $resultStatus")
+            if (resultStatus != BluetoothGatt.GATT_SUCCESS) throw IllegalStateException("Thông báo BLE thất bại: $resultStatus")
             offset += chunk.size
         }
         notificationResult = null
@@ -222,7 +222,7 @@ class BleServerTransport(
     }
 
     private fun startAdvertising() {
-        val advertiser = adapter.bluetoothLeAdvertiser ?: return fail("BLE advertiser unavailable")
+        val advertiser = adapter.bluetoothLeAdvertiser ?: return fail("Quảng bá BLE không khả dụng")
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)

@@ -9,6 +9,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -179,7 +180,7 @@ private fun FocusFrame(
     canvasHeightDp: Float,
     onElementChange: (HudElementConfig) -> Unit,
 ) {
-    Box(modifier.semantics { contentDescription = "Focused ${element.type.name}" }) {
+    Box(modifier.semantics { contentDescription = "Đang chọn ${element.type.name}" }) {
         Canvas(Modifier.fillMaxSize()) {
             val thin = 1.dp.toPx()
             val strong = 2.5.dp.toPx()
@@ -316,8 +317,22 @@ private fun HudWidget(
             HudWidgetType.TURN -> ManeuverWidget(state.turn, state.roundaboutExit, config)
             HudWidgetType.NEXT_TURN -> ManeuverWidget(state.nextTurn, null, config)
             HudWidgetType.DISTANCE -> HudTextWidget(formatDistance(state.distanceMeters), config, globalFontScale, weight, align)
-            HudWidgetType.STREET -> HudTextWidget(state.street.orEmpty().ifBlank { "—" }, config, globalFontScale, weight, align)
-            HudWidgetType.NEXT_STREET -> HudTextWidget(state.nextStreet.orEmpty().ifBlank { "—" }, config, globalFontScale, weight, align)
+            HudWidgetType.STREET -> HudTextWidget(
+                state.street.orEmpty().ifBlank { "—" },
+                config,
+                globalFontScale,
+                weight,
+                align,
+                marquee = true,
+            )
+            HudWidgetType.NEXT_STREET -> HudTextWidget(
+                state.nextStreet.orEmpty().ifBlank { "—" },
+                config,
+                globalFontScale,
+                weight,
+                align,
+                marquee = true,
+            )
             HudWidgetType.ETA -> HudTextWidget(state.eta ?: "--:--", config, globalFontScale, weight, align)
             HudWidgetType.REMAINING -> HudTextWidget(remainingText(state), config, globalFontScale, weight, align)
             HudWidgetType.GPS -> StatusIcon(state.gpsAvailable, true, config)
@@ -408,13 +423,13 @@ private fun TrafficDelayWidget(
             if (bitmap != null) {
                 Image(
                     bitmap = bitmap,
-                    contentDescription = "Traffic severity $level",
+                    contentDescription = "Mức độ kẹt xe $level",
                     modifier = Modifier.size(iconSize.dp),
                 )
             } else {
                 Icon(
                     Icons.Rounded.Warning,
-                    contentDescription = "Traffic",
+                    contentDescription = "Kẹt xe",
                     tint = HudRed,
                     modifier = Modifier.size(iconSize.dp),
                 )
@@ -430,7 +445,7 @@ private fun TrafficDelayWidget(
                         maxLines = 1,
                     )
                     Text(
-                        text = " min",
+                        text = " phút",
                         color = HudText,
                         fontSize = (textSize * .58f).coerceAtLeast(6f).sp,
                         fontWeight = FontWeight.Bold,
@@ -439,7 +454,7 @@ private fun TrafficDelayWidget(
                     )
                 }
                 Text(
-                    text = "traffic delay",
+                    text = "chậm do kẹt xe",
                     color = HudMuted,
                     fontSize = (textSize * .48f).coerceAtLeast(6f).sp,
                     fontFamily = textFont,
@@ -558,7 +573,7 @@ private fun ManeuverWidget(turn: TurnType, exit: Int?, config: HudElementConfig)
         if (bitmap != null) {
             Image(
                 bitmap = bitmap,
-                contentDescription = "Maneuver ${turn.name}",
+                contentDescription = "Hướng di chuyển ${turn.name}",
                 modifier = Modifier.size(iconSize.dp),
             )
         } else {
@@ -637,15 +652,21 @@ private fun HudTextWidget(
     fontScale: Float,
     weight: FontWeight,
     align: TextAlign,
+    marquee: Boolean = false,
 ) {
+    val textModifier = Modifier
+        .fillMaxSize()
+        .padding(config.spacingDp.dp)
+        .then(if (marquee) Modifier.basicMarquee(iterations = Int.MAX_VALUE) else Modifier)
     Text(
         text = text,
         color = HudText,
         fontSize = (config.fontSizeSp * fontScale).sp,
         fontWeight = weight,
         textAlign = align,
-        maxLines = 2,
-        modifier = Modifier.fillMaxSize().padding(config.spacingDp.dp),
+        maxLines = if (marquee) 1 else 2,
+        softWrap = !marquee,
+        modifier = textModifier,
     )
 }
 
@@ -676,7 +697,7 @@ private fun StatusIcon(active: Boolean, gps: Boolean, config: HudElementConfig) 
             )
             if (!compact) {
                 Text(
-                    if (gps) "GPS" else if (active) "LINK" else "OFFLINE",
+                    if (gps) "GPS" else if (active) "KẾT NỐI" else "MẤT KẾT NỐI",
                     color = HudText,
                     fontWeight = FontWeight.Bold,
                     fontSize = min(config.fontSizeSp, availableHeight * .3f).coerceAtLeast(6f).sp,
@@ -730,13 +751,13 @@ private fun AlertBadge(alert: HudAlert, iconSize: Float) {
             } else if (bitmap != null) {
                 Image(
                     bitmap = bitmap,
-                    contentDescription = "Alert ${alert.type}",
+                    contentDescription = "Cảnh báo ${alert.type}",
                     modifier = Modifier.size((iconSize * .86f).dp),
                 )
             } else {
                 Icon(
                     imageVector = if (alert.type == 2 || alert.type in 40..46) Icons.Rounded.Speed else Icons.Rounded.Warning,
-                    contentDescription = "Alert ${alert.type}",
+                    contentDescription = "Cảnh báo ${alert.type}",
                     tint = if (alert.type == 2 || alert.type in 40..46) HudCyan else HudRed,
                     modifier = Modifier.size((iconSize * .62f).dp),
                 )
@@ -868,22 +889,22 @@ private fun OverspeedVignette() {
 }
 
 private fun widgetDescription(type: HudWidgetType, state: HudState): String = when (type) {
-    HudWidgetType.SPEED -> "Current speed ${state.speed ?: 0} kilometers per hour"
-    HudWidgetType.SPEED_NUMBER -> "Current speed number ${state.speed ?: 0}"
-    HudWidgetType.SPEED_LIMIT -> "Speed limit ${state.speedLimit ?: "unknown"}"
-    HudWidgetType.SPEED_LIMIT_BAR -> "Current speed ${state.speed ?: 0} toward speed limit ${state.speedLimit ?: "unknown"}"
-    HudWidgetType.TURN -> "Next maneuver ${state.turn.name}"
-    HudWidgetType.NEXT_TURN -> "Following maneuver ${state.nextTurn.name}"
-    HudWidgetType.DISTANCE -> "Maneuver distance ${formatDistance(state.distanceMeters)}"
-    HudWidgetType.STREET -> "Current street ${state.street.orEmpty()}"
-    HudWidgetType.NEXT_STREET -> "Next street ${state.nextStreet.orEmpty()}"
-    HudWidgetType.ETA -> "Estimated arrival ${state.eta.orEmpty()}"
+    HudWidgetType.SPEED -> "Tốc độ hiện tại ${state.speed ?: 0} ki-lô-mét trên giờ"
+    HudWidgetType.SPEED_NUMBER -> "Số tốc độ hiện tại ${state.speed ?: 0}"
+    HudWidgetType.SPEED_LIMIT -> "Giới hạn tốc độ ${state.speedLimit ?: "chưa xác định"}"
+    HudWidgetType.SPEED_LIMIT_BAR -> "Tốc độ hiện tại ${state.speed ?: 0}, giới hạn ${state.speedLimit ?: "chưa xác định"}"
+    HudWidgetType.TURN -> "Hướng rẽ tiếp theo ${state.turn.name}"
+    HudWidgetType.NEXT_TURN -> "Hướng rẽ kế tiếp ${state.nextTurn.name}"
+    HudWidgetType.DISTANCE -> "Khoảng cách tới chỗ rẽ ${formatDistance(state.distanceMeters)}"
+    HudWidgetType.STREET -> "Đường hiện tại ${state.street.orEmpty()}"
+    HudWidgetType.NEXT_STREET -> "Đường tiếp theo ${state.nextStreet.orEmpty()}"
+    HudWidgetType.ETA -> "Giờ đến dự kiến ${state.eta.orEmpty()}"
     HudWidgetType.REMAINING -> remainingText(state)
-    HudWidgetType.GPS -> if (state.gpsAvailable) "GPS available" else "GPS unavailable"
-    HudWidgetType.CONNECTION -> if (state.connected) "Bluetooth connected" else "Bluetooth disconnected"
-    HudWidgetType.ALERTS -> "${state.alerts.size} upcoming alerts"
-    HudWidgetType.LANES -> "Lane guidance, ${state.lanes.size} lanes"
-    HudWidgetType.TRAFFIC_DELAY -> "Traffic delay ${state.trafficDelayMinutes ?: 0} minutes"
+    HudWidgetType.GPS -> if (state.gpsAvailable) "GPS khả dụng" else "Không có GPS"
+    HudWidgetType.CONNECTION -> if (state.connected) "Bluetooth đã kết nối" else "Bluetooth đã ngắt kết nối"
+    HudWidgetType.ALERTS -> "${state.alerts.size} cảnh báo sắp tới"
+    HudWidgetType.LANES -> "Chỉ dẫn làn đường, ${state.lanes.size} làn"
+    HudWidgetType.TRAFFIC_DELAY -> "Chậm ${state.trafficDelayMinutes ?: 0} phút do kẹt xe"
 }
 
 private fun shouldRenderWidget(type: HudWidgetType, state: HudState): Boolean = when (type) {
@@ -912,8 +933,8 @@ private fun formatDistance(meters: Int?): String = when {
 private fun remainingText(state: HudState): String {
     val distance = state.remainingMeters?.let(::formatDistance)
         ?: state.remainingKm?.let { "%.1f km".format(it) }
-    val minutes = state.remainingMinutes?.let { if (it < 60) "$it min" else "${it / 60}h ${it % 60}m" }
-    return listOfNotNull(distance, minutes, state.eta?.let { "ETA $it" }).joinToString("  ·  ").ifBlank { "—" }
+    val minutes = state.remainingMinutes?.let { if (it < 60) "$it phút" else "${it / 60} giờ ${it % 60} phút" }
+    return listOfNotNull(distance, minutes, state.eta?.let { "Đến lúc $it" }).joinToString("  ·  ").ifBlank { "—" }
 }
 
 private fun laneAngle(bit: Int): Float = when (bit) {
@@ -1031,8 +1052,8 @@ val PreviewHudState = HudState(
     turn = TurnType.CONTINUE,
     nextTurn = TurnType.LEFT,
     lanes = listOf(LaneGuidance(5, 4), LaneGuidance(1, 1), LaneGuidance(17, 16)),
-    street = "QL1A",
-    nextStreet = "Nguyễn Ái Quốc",
+    street = "Đường Võ Nguyên Giáp, phường Long Bình",
+    nextStreet = "Đường Nguyễn Ái Quốc",
     eta = "09:32",
     remainingMinutes = 24,
     remainingKm = 18.5,

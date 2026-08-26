@@ -30,10 +30,10 @@ import com.chisadin.hudwz.ui.settings.SettingsScreen
 import com.chisadin.hudwz.viewmodel.HudViewModel
 
 private enum class AppRoute(val route: String, val label: String, val icon: ImageVector) {
-    CONNECT("connect", "Connect", Icons.Rounded.Bluetooth),
-    PROFILES("profiles", "Profiles", Icons.Rounded.DashboardCustomize),
-    SETTINGS("settings", "Settings", Icons.Rounded.Settings),
-    DEBUG("debug", "Debug", Icons.Rounded.BugReport),
+    CONNECT("connect", "Kết nối", Icons.Rounded.Bluetooth),
+    PROFILES("profiles", "Hồ sơ", Icons.Rounded.DashboardCustomize),
+    SETTINGS("settings", "Cài đặt", Icons.Rounded.Settings),
+    DEBUG("debug", "Chẩn đoán", Icons.Rounded.BugReport),
 }
 
 @Composable

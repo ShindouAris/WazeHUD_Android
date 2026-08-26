@@ -50,36 +50,36 @@ class BleTransport(
     private val callback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
-                fail("GATT connection error $status")
+                fail("Lỗi kết nối GATT: $status")
                 return
             }
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
-                    if (!gatt.discoverServices()) fail("Service discovery could not start")
+                    if (!gatt.discoverServices()) fail("Không thể bắt đầu tìm dịch vụ")
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
-                    _status.value = TransportStatus.Disconnected("GATT disconnected")
-                    if (!ready.isCompleted) ready.completeExceptionally(IllegalStateException("GATT disconnected"))
+                    _status.value = TransportStatus.Disconnected("GATT đã ngắt kết nối")
+                    if (!ready.isCompleted) ready.completeExceptionally(IllegalStateException("GATT đã ngắt kết nối"))
                 }
             }
         }
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
-                fail("Service discovery failed: $status")
+                fail("Tìm dịch vụ thất bại: $status")
                 return
             }
             val service: BluetoothGattService = gatt.getService(SERVICE_UUID)
-                ?: return fail("HLP service missing")
-            tx = service.getCharacteristic(TX_UUID) ?: return fail("HLP TX characteristic missing")
-            val rx = service.getCharacteristic(RX_UUID) ?: return fail("HLP RX characteristic missing")
-            if (!gatt.setCharacteristicNotification(rx, true)) return fail("Could not enable HLP notifications")
-            val descriptor = rx.getDescriptor(CCCD_UUID) ?: return fail("HLP RX CCCD missing")
+                ?: return fail("Không tìm thấy dịch vụ HLP")
+            tx = service.getCharacteristic(TX_UUID) ?: return fail("Không tìm thấy đặc tính HLP TX")
+            val rx = service.getCharacteristic(RX_UUID) ?: return fail("Không tìm thấy đặc tính HLP RX")
+            if (!gatt.setCharacteristicNotification(rx, true)) return fail("Không thể bật thông báo HLP")
+            val descriptor = rx.getDescriptor(CCCD_UUID) ?: return fail("Không tìm thấy HLP RX CCCD")
             val enableValue = if (rx.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0) {
                 BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
             } else if (rx.properties and BluetoothGattCharacteristic.PROPERTY_INDICATE != 0) {
                 BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
-            } else return fail("HLP RX does not support notify or indicate")
+            } else return fail("HLP RX không hỗ trợ notify hoặc indicate")
             val started = if (Build.VERSION.SDK_INT >= 33) {
                 gatt.writeDescriptor(descriptor, enableValue) == BluetoothStatusCodes.SUCCESS
             } else {
@@ -88,12 +88,12 @@ class BleTransport(
                 @Suppress("DEPRECATION")
                 gatt.writeDescriptor(descriptor)
             }
-            if (!started) fail("Could not write HLP RX CCCD")
+            if (!started) fail("Không thể ghi HLP RX CCCD")
         }
 
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
             if (descriptor.uuid != CCCD_UUID) return
-            if (status != BluetoothGatt.GATT_SUCCESS) return fail("HLP RX subscription failed: $status")
+            if (status != BluetoothGatt.GATT_SUCCESS) return fail("Đăng ký HLP RX thất bại: $status")
             if (!gatt.requestMtu(247)) markReady()
             else mainHandler.postDelayed({ if (!ready.isCompleted) markReady() }, 1_000)
         }
@@ -130,7 +130,7 @@ class BleTransport(
         _status.value = TransportStatus.Connecting
         val remote = adapter.getRemoteDevice(device.address)
         gatt = remote.connectGatt(context, false, callback, android.bluetooth.BluetoothDevice.TRANSPORT_LE)
-            ?: throw IllegalStateException("connectGatt returned null")
+            ?: throw IllegalStateException("connectGatt trả về null")
         try {
             withTimeout(timeoutMillis) { ready.await() }
         } catch (error: Throwable) {
@@ -140,8 +140,8 @@ class BleTransport(
     }
 
     override suspend fun write(bytes: ByteArray) = writeMutex.withLock {
-        val activeGatt = gatt ?: throw IllegalStateException("BLE is not connected")
-        val characteristic = tx ?: throw IllegalStateException("HLP TX unavailable")
+        val activeGatt = gatt ?: throw IllegalStateException("BLE chưa được kết nối")
+        val characteristic = tx ?: throw IllegalStateException("HLP TX không khả dụng")
         val payloadSize = (negotiatedMtu - 3).coerceAtLeast(20)
         var offset = 0
         while (offset < bytes.size) {
@@ -161,9 +161,9 @@ class BleTransport(
                 @Suppress("DEPRECATION")
                 activeGatt.writeCharacteristic(characteristic)
             }
-            if (!started) throw IllegalStateException("BLE write could not start")
+            if (!started) throw IllegalStateException("Không thể bắt đầu ghi BLE")
             val status = withTimeout(3_000) { result.await() }
-            if (status != BluetoothGatt.GATT_SUCCESS) throw IllegalStateException("BLE write failed: $status")
+            if (status != BluetoothGatt.GATT_SUCCESS) throw IllegalStateException("Ghi BLE thất bại: $status")
             offset += chunk.size
         }
         writeResult = null

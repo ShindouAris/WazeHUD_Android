@@ -31,7 +31,7 @@ class BluetoothDeviceScanner(
             activeAdapter.bondedDevices.map { device ->
                 BluetoothDeviceInfo(
                     address = device.address,
-                    name = device.name ?: "Paired device",
+                    name = device.name ?: "Thiết bị đã ghép đôi",
                     transport = if (device.type == BluetoothDevice.DEVICE_TYPE_LE) TransportType.BLE else TransportType.CLASSIC,
                     bonded = true,
                 )
@@ -43,7 +43,7 @@ class BluetoothDeviceScanner(
     fun scanBle(timeoutMillis: Long = 12_000): Flow<List<BluetoothDeviceInfo>> = callbackFlow {
         val scanner = adapter?.bluetoothLeScanner
         if (scanner == null || !BluetoothPermissionPolicy.has(context, BluetoothPermissionPolicy.scanPermissions())) {
-            close(IllegalStateException("Bluetooth scan permission or adapter unavailable"))
+            close(IllegalStateException("Thiếu quyền quét Bluetooth hoặc bộ điều hợp không khả dụng"))
             return@callbackFlow
         }
         val found = linkedMapOf<String, BluetoothDeviceInfo>()
@@ -52,7 +52,7 @@ class BluetoothDeviceScanner(
                 val device = result.device ?: return
                 val info = BluetoothDeviceInfo(
                     address = device.address,
-                    name = result.scanRecord?.deviceName ?: device.name ?: "BLE device",
+                    name = result.scanRecord?.deviceName ?: device.name ?: "Thiết bị BLE",
                     transport = TransportType.BLE,
                     bonded = device.bondState == BluetoothDevice.BOND_BONDED,
                     rssi = result.rssi,
@@ -66,7 +66,7 @@ class BluetoothDeviceScanner(
             }
 
             override fun onScanFailed(errorCode: Int) {
-                close(IllegalStateException("BLE scan failed: $errorCode"))
+                close(IllegalStateException("Quét BLE thất bại: $errorCode"))
             }
         }
         val filters = listOf(ScanFilter.Builder().setServiceUuid(ParcelUuid(BleTransport.SERVICE_UUID)).build())

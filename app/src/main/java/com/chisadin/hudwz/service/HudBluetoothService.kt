@@ -74,14 +74,14 @@ class HudBluetoothService : Service() {
                 val address = intent.getStringExtra(EXTRA_ADDRESS) ?: return START_STICKY
                 val device = BluetoothDeviceInfo(
                     address = address,
-                    name = intent.getStringExtra(EXTRA_NAME) ?: "HUD source",
+                    name = intent.getStringExtra(EXTRA_NAME) ?: "Nguồn HUD",
                     transport = intent.getStringExtra(EXTRA_TRANSPORT).toTransport(),
                     bonded = intent.getBooleanExtra(EXTRA_BONDED, false),
                 )
                 startConnection(device, listen = false)
             }
             else -> {
-                startForeground(NOTIFICATION_ID, notification("Restoring HUD connection"))
+                startForeground(NOTIFICATION_ID, notification("Đang khôi phục kết nối HUD"))
                 scope.launch { restoreConnectionIfEnabled() }
             }
         }
@@ -100,7 +100,7 @@ class HudBluetoothService : Service() {
     private fun startConnection(device: BluetoothDeviceInfo, listen: Boolean) {
         manuallyStopped = false
         receiverMode = listen
-        val status = if (listen) "Waiting for Waze Mod via ${device.transport}" else "Connecting to ${device.name}"
+        val status = if (listen) "Đang chờ Waze Mod qua ${device.transport}" else "Đang kết nối tới ${device.name}"
         startForeground(NOTIFICATION_ID, notification(status))
         connectionJob?.cancel()
         connectionJob = scope.launch { connectionLoop(device) }
@@ -124,7 +124,7 @@ class HudBluetoothService : Service() {
             startConnection(
                 BluetoothDeviceInfo(
                     address = address,
-                    name = settings.preferredDeviceName ?: "HUD source",
+                    name = settings.preferredDeviceName ?: "Nguồn HUD",
                     transport = settings.preferredTransport.takeUnless { it == TransportType.AUTO } ?: TransportType.BLE,
                     bonded = false,
                 ),
@@ -145,13 +145,13 @@ class HudBluetoothService : Service() {
                 BluetoothPermissionPolicy.receiverPermissions(actualType)
             } else BluetoothPermissionPolicy.connectionPermissions()
             if (!BluetoothPermissionPolicy.has(this, requiredPermissions)) {
-                repository.setConnection(ConnectionState(ConnectionPhase.ERROR, device, actualType, "Bluetooth permission required"))
+                repository.setConnection(ConnectionState(ConnectionPhase.ERROR, device, actualType, "Cần cấp quyền Bluetooth"))
                 stopForegroundCompat(removeNotification = true)
                 stopSelf()
                 return
             }
             if (adapter?.isEnabled != true) {
-                repository.setConnection(ConnectionState(ConnectionPhase.ERROR, device, actualType, "Bluetooth is off"))
+                repository.setConnection(ConnectionState(ConnectionPhase.ERROR, device, actualType, "Bluetooth đang tắt"))
                 stopForegroundCompat(removeNotification = true)
                 stopSelf()
                 return
@@ -161,13 +161,13 @@ class HudBluetoothService : Service() {
                     phase = if (attempt == 0) ConnectionPhase.CONNECTING else ConnectionPhase.RECONNECTING,
                     device = device,
                     transport = actualType,
-                    message = if (receiverMode) "Waiting for Waze Mod" else if (attempt == 0) "Connecting" else "Reconnect attempt $attempt",
+                    message = if (receiverMode) "Đang chờ Waze Mod" else if (attempt == 0) "Đang kết nối" else "Lần kết nối lại thứ $attempt",
                     retryAttempt = attempt,
                 ),
             )
             updateNotification(
-                if (receiverMode) "Waiting for Waze Mod via $actualType"
-                else if (attempt == 0) "Connecting to ${device.name}" else "Reconnecting to ${device.name}",
+                if (receiverMode) "Đang chờ Waze Mod qua $actualType"
+                else if (attempt == 0) "Đang kết nối tới ${device.name}" else "Đang kết nối lại tới ${device.name}",
             )
             val activeTransport = createTransport(actualType, receiverMode)
             transport = activeTransport
@@ -177,7 +177,7 @@ class HudBluetoothService : Service() {
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
-                repository.log("Bluetooth", error.message ?: "Connection failed")
+                repository.log("Bluetooth", error.message ?: "Kết nối thất bại")
             } finally {
                 runCatching { activeTransport.disconnect() }
                 if (transport === activeTransport) transport = null
@@ -188,11 +188,11 @@ class HudBluetoothService : Service() {
             val base = min(48_000L, 1_500L shl min(attempt - 1, 5))
             val delayMs = (base * Random.nextDouble(.8, 1.2)).toLong()
             repository.setConnection(
-                ConnectionState(ConnectionPhase.RECONNECTING, device, actualType, "Retrying in ${delayMs / 1_000.0}s", attempt),
+                ConnectionState(ConnectionPhase.RECONNECTING, device, actualType, "Thử lại sau ${delayMs / 1_000.0} giây", attempt),
             )
             delay(delayMs)
         }
-        repository.setConnection(ConnectionState(ConnectionPhase.IDLE, message = "Disconnected"))
+        repository.setConnection(ConnectionState(ConnectionPhase.IDLE, message = "Đã ngắt kết nối"))
         stopForegroundCompat(removeNotification = true)
         stopSelf()
     }
@@ -218,8 +218,8 @@ class HudBluetoothService : Service() {
             activeTransport.connect(device, timeoutMillis)
             val connectedStatus = activeTransport.status.value as? TransportStatus.Connected
             connectedStatus?.mtu?.let { mtu -> repository.updateTransportMetrics { it.copy(mtu = mtu) } }
-            repository.setConnection(ConnectionState(ConnectionPhase.CONNECTED, device, activeTransport.type, "Connected"))
-            updateNotification("Connected to ${device.name}")
+            repository.setConnection(ConnectionState(ConnectionPhase.CONNECTED, device, activeTransport.type, "Đã kết nối"))
+            updateNotification("Đã kết nối tới ${device.name}")
             settingsRepository.update { current ->
                 if (receiverMode) current.copy(
                     preferredDeviceAddress = null,
@@ -237,7 +237,7 @@ class HudBluetoothService : Service() {
                 when (val terminal = activeTransport.status.filter {
                     it is TransportStatus.Disconnected || it is TransportStatus.Failed
                 }.first()) {
-                    is TransportStatus.Disconnected -> throw IllegalStateException(terminal.reason ?: "Disconnected")
+                    is TransportStatus.Disconnected -> throw IllegalStateException(terminal.reason ?: "Đã ngắt kết nối")
                     is TransportStatus.Failed -> throw IllegalStateException(terminal.reason)
                     else -> Unit
                 }
@@ -248,10 +248,10 @@ class HudBluetoothService : Service() {
                     activeTransport.write(protocol.ping(SystemClock.elapsedRealtime()))
                     val stale = repository.staleForMs()
                     if (stale != null && stale > 3_000) {
-                        repository.setConnection(ConnectionState(ConnectionPhase.CONNECTED, device, activeTransport.type, "Signal stale: ${stale}ms"))
+                        repository.setConnection(ConnectionState(ConnectionPhase.CONNECTED, device, activeTransport.type, "Tín hiệu đã cũ: ${stale}ms"))
                     }
                     if (stale != null && stale > timeoutMillis) {
-                        throw IllegalStateException("No HLP data for ${stale}ms")
+                        throw IllegalStateException("Không có dữ liệu HLP trong ${stale}ms")
                     }
                 }
             }
@@ -266,7 +266,7 @@ class HudBluetoothService : Service() {
     }
 
     private fun createTransport(type: TransportType, listen: Boolean): BluetoothTransport {
-        val bluetoothAdapter = adapter ?: throw IllegalStateException("Bluetooth is unavailable")
+        val bluetoothAdapter = adapter ?: throw IllegalStateException("Bluetooth không khả dụng")
         if (listen) {
             val bluetoothManager = getSystemService(BluetoothManager::class.java)
             return when (type) {
@@ -282,13 +282,13 @@ class HudBluetoothService : Service() {
 
     private fun disconnectByUser() {
         manuallyStopped = true
-        repository.setConnection(ConnectionState(ConnectionPhase.DISCONNECTING, message = "Disconnecting"))
+        repository.setConnection(ConnectionState(ConnectionPhase.DISCONNECTING, message = "Đang ngắt kết nối"))
         connectionJob?.cancel()
         connectionJob = null
         scope.launch {
             transport?.disconnect()
             transport = null
-            repository.setConnection(ConnectionState(ConnectionPhase.IDLE, message = "Disconnected"))
+            repository.setConnection(ConnectionState(ConnectionPhase.IDLE, message = "Đã ngắt kết nối"))
             stopForegroundCompat(removeNotification = true)
             stopSelf()
         }
@@ -298,8 +298,8 @@ class HudBluetoothService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "HUD Bluetooth", NotificationManager.IMPORTANCE_LOW).apply {
-                    description = "Keeps the HUD Bluetooth connection active"
+                NotificationChannel(CHANNEL_ID, "Bluetooth HUD", NotificationManager.IMPORTANCE_LOW).apply {
+                    description = "Duy trì kết nối Bluetooth cho HUD"
                     setShowBadge(false)
                 },
             )
@@ -326,7 +326,7 @@ class HudBluetoothService : Service() {
             .setContentIntent(launch)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .addAction(0, "Disconnect", disconnect)
+            .addAction(0, "Ngắt kết nối", disconnect)
             .build()
     }
 

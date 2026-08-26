@@ -51,12 +51,12 @@ fun ProfilesScreen(
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("HUD profiles", style = MaterialTheme.typography.headlineLarge)
-                Text("Choose a layout, then open the landscape HUD Editor.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Hồ sơ HUD", style = MaterialTheme.typography.headlineLarge)
+                Text("Chọn một bố cục rồi mở Trình chỉnh sửa HUD ngang.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Button(onClick = { dialog = ProfileDialog.Create }) {
                 Icon(Icons.Rounded.Add, contentDescription = null)
-                Text(" New")
+                Text(" Tạo mới")
             }
         }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.weight(1f)) {
@@ -66,20 +66,20 @@ fun ProfilesScreen(
                         RadioButton(selected = profile.id == activeProfile.id, onClick = { onSelect(profile.id) })
                         Column(Modifier.weight(1f)) {
                             Text(profile.name, style = MaterialTheme.typography.titleLarge)
-                            Text("${profile.elements.count { it.visible }} visible widgets · ${"%.0f".format(profile.hudScale * 100)}% scale")
+                            Text("${profile.elements.count { it.visible }} thành phần đang hiện · tỷ lệ ${"%.0f".format(profile.hudScale * 100)}%")
                         }
                         IconButton(
                             onClick = { dialog = ProfileDialog.Rename(profile) },
-                            modifier = Modifier.semantics { contentDescription = "Rename ${profile.name}" },
+                            modifier = Modifier.semantics { contentDescription = "Đổi tên ${profile.name}" },
                         ) { Icon(Icons.Rounded.Edit, contentDescription = null) }
                         IconButton(
                             onClick = { onDuplicate(profile.id) },
-                            modifier = Modifier.semantics { contentDescription = "Duplicate ${profile.name}" },
+                            modifier = Modifier.semantics { contentDescription = "Nhân bản ${profile.name}" },
                         ) { Icon(Icons.Rounded.ContentCopy, contentDescription = null) }
                         IconButton(
                             onClick = { onDelete(profile.id) },
                             enabled = profiles.size > 1,
-                            modifier = Modifier.semantics { contentDescription = "Delete ${profile.name}" },
+                            modifier = Modifier.semantics { contentDescription = "Xóa ${profile.name}" },
                         ) { Icon(Icons.Rounded.Delete, contentDescription = null) }
                     }
                 }
@@ -87,22 +87,22 @@ fun ProfilesScreen(
         }
         FilledTonalButton(onClick = onEdit, modifier = Modifier.fillMaxWidth()) {
             Icon(Icons.Rounded.Edit, contentDescription = null)
-            Text(" Open HUD Editor · ${activeProfile.name}")
+            Text(" Mở Trình chỉnh sửa HUD · ${activeProfile.name}")
         }
     }
     dialog?.let { state ->
         var name by remember(state) { mutableStateOf(if (state is ProfileDialog.Rename) state.profile.name else "") }
         AlertDialog(
             onDismissRequest = { dialog = null },
-            title = { Text(if (state is ProfileDialog.Create) "Create profile" else "Rename profile") },
-            text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Profile name") }, singleLine = true) },
+            title = { Text(if (state is ProfileDialog.Create) "Tạo hồ sơ" else "Đổi tên hồ sơ") },
+            text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Tên hồ sơ") }, singleLine = true) },
             confirmButton = {
                 TextButton(onClick = {
                     if (state is ProfileDialog.Create) onCreate(name) else onRename((state as ProfileDialog.Rename).profile.id, name)
                     dialog = null
-                }, enabled = name.isNotBlank()) { Text("Save") }
+                }, enabled = name.isNotBlank()) { Text("Lưu") }
             },
-            dismissButton = { TextButton(onClick = { dialog = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { dialog = null }) { Text("Hủy") } },
         )
     }
 }

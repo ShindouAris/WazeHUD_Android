@@ -52,7 +52,7 @@ class ClassicTransport(private val adapter: BluetoothAdapter) : BluetoothTranspo
         } catch (error: Throwable) {
             runCatching { pending.close() }
             socket = null
-            _status.value = TransportStatus.Failed(error.message ?: "SPP connection failed")
+            _status.value = TransportStatus.Failed(error.message ?: "Kết nối SPP thất bại")
             throw error
         }
         _status.value = TransportStatus.Connected()
@@ -65,7 +65,7 @@ class ClassicTransport(private val adapter: BluetoothAdapter) : BluetoothTranspo
                     if (count < 0) break
                     if (count > 0) _incoming.emit(buffer.copyOf(count))
                 }
-                _status.value = TransportStatus.Disconnected("SPP stream closed")
+                _status.value = TransportStatus.Disconnected("Luồng SPP đã đóng")
             } catch (error: Throwable) {
                 if (isActive) _status.value = TransportStatus.Disconnected(error.message)
             }
@@ -73,7 +73,7 @@ class ClassicTransport(private val adapter: BluetoothAdapter) : BluetoothTranspo
     }
 
     override suspend fun write(bytes: ByteArray) = writeMutex.withLock {
-        val active = socket ?: throw IllegalStateException("SPP is not connected")
+        val active = socket ?: throw IllegalStateException("SPP chưa được kết nối")
         withContext(Dispatchers.IO) {
             active.outputStream.write(bytes)
             active.outputStream.flush()

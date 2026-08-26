@@ -67,15 +67,15 @@ fun HudScreen(
             Row(
                 modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
             ) {
-                HudControlButton("Mirror HUD", onClick = { onMirrorChanged(!settings.mirrorMode) }) {
+                HudControlButton("Lật gương HUD", onClick = { onMirrorChanged(!settings.mirrorMode) }) {
                     Icon(Icons.Rounded.Flip, contentDescription = null)
                 }
                 if (settings.preventAccidentalTouches) {
-                    HudControlButton("Lock HUD controls", onClick = { touchLocked = true }) {
+                    HudControlButton("Khóa điều khiển HUD", onClick = { touchLocked = true }) {
                         Icon(Icons.Rounded.Lock, contentDescription = null)
                     }
                 }
-                HudControlButton("Exit HUD", onClick = onExit) {
+                HudControlButton("Thoát HUD", onClick = onExit) {
                     Icon(Icons.Rounded.Close, contentDescription = null)
                 }
             }
@@ -86,12 +86,12 @@ fun HudScreen(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(12.dp)
-                    .semantics { contentDescription = "Press and hold to unlock HUD controls" }
+                    .semantics { contentDescription = "Nhấn giữ để mở khóa điều khiển HUD" }
                     .pointerInput(Unit) { detectTapGestures(onLongPress = { touchLocked = false }) },
             ) {
                 Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Rounded.LockOpen, contentDescription = null, modifier = Modifier.size(20.dp))
-                    Text(" Hold to unlock", style = MaterialTheme.typography.labelSmall)
+                    Text(" Giữ để mở khóa", style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
