@@ -104,22 +104,24 @@ class HlpProtocol(private val json: Json = Json { ignoreUnknownKeys = true }) {
             ?: remainingKm?.let { (it * 1000.0).toInt() }
         val alerts = parseAlerts(root)
         val trafficAlert = alerts.firstOrNull { it.type == 6 }
+        val navExplicit = root.bool("nav") ?: root.int("nav")?.let { it == 1 }
+        val isNavigating = navExplicit ?: (turn != TurnType.NONE || remainingKm != null || root.string("eta") != null)
         return HudState(
-            navigating = root.bool("nav") ?: (root.int("nav") == 1),
+            navigating = isNavigating,
             speed = speed?.coerceAtLeast(0),
             speedLimit = limit?.takeIf { it > 0 },
             overspeed = root.bool("overspeed") ?: root.bool("over") ?: (root.int("over") == 1),
-            distanceMeters = (root.int("dst") ?: root.int("distance"))?.takeIf { it >= 0 },
-            turn = turn,
-            nextTurn = nextTurn,
-            roundaboutExit = root.int("exit")?.takeIf { it > 0 },
-            lanes = parseLanes(root["lan"]),
+            distanceMeters = if (isNavigating) (root.int("dst") ?: root.int("distance"))?.takeIf { it >= 0 } else null,
+            turn = if (isNavigating) turn else TurnType.NONE,
+            nextTurn = if (isNavigating) nextTurn else TurnType.NONE,
+            roundaboutExit = if (isNavigating) root.int("exit")?.takeIf { it > 0 } else null,
+            lanes = if (isNavigating) parseLanes(root["lan"]) else emptyList(),
             street = root.string("st") ?: root.string("street"),
-            nextStreet = root.string("st2") ?: root.string("nextStreet"),
-            eta = root.string("eta"),
-            remainingMinutes = root.int("rmin") ?: root.int("remainingMinutes"),
-            remainingMeters = remainingMeters?.takeIf { it >= 0 },
-            remainingKm = remainingKm,
+            nextStreet = if (isNavigating) (root.string("st2") ?: root.string("nextStreet")) else null,
+            eta = if (isNavigating) root.string("eta")?.takeIf { it.isNotBlank() && it != "--:--" } else null,
+            remainingMinutes = if (isNavigating) (root.int("rmin") ?: root.int("remainingMinutes"))?.takeIf { it > 0 } else null,
+            remainingMeters = if (isNavigating) remainingMeters?.takeIf { it > 0 } else null,
+            remainingKm = if (isNavigating) remainingKm?.takeIf { it > 0.0 } else null,
             gpsAvailable = root.bool("gps") ?: true,
             noPassingZone = root.bool("avg") ?: (root.int("avg") == 1),
             zoneRemainingMeters = root.int("avgL")?.takeIf { it > 0 },

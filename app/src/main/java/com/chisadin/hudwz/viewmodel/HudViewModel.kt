@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -61,7 +62,7 @@ class HudViewModel(application: Application) : AndroidViewModel(application) {
     private val _scanning = MutableStateFlow(false)
     val scanning: StateFlow<Boolean> = _scanning.asStateFlow()
     private var scanJob: Job? = null
-    private val elementUpdates = MutableSharedFlow<Pair<String, HudElementConfig>>(
+    private val elementUpdates = MutableSharedFlow<Triple<String, HudElementConfig, Boolean>>(
         extraBufferCapacity = 1,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
@@ -73,8 +74,8 @@ class HudViewModel(application: Application) : AndroidViewModel(application) {
     @OptIn(FlowPreview::class)
     private fun observeEditorUpdates() {
         viewModelScope.launch {
-            elementUpdates.debounce(100).collect { (profileId, element) ->
-                profileRepository.updateElement(profileId, element)
+            elementUpdates.debounce(100).collect { (profileId, element, isPortrait) ->
+                profileRepository.updateElement(profileId, element, isPortrait)
             }
         }
         viewModelScope.launch {
@@ -86,6 +87,12 @@ class HudViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         observeEditorUpdates()
+        viewModelScope.launch {
+            val currentSettings = settingsRepository.settings.first()
+            if (currentSettings.autoReconnect) {
+                runCatching { HudBluetoothService.restore(application) }
+            }
+        }
     }
 
     fun refreshPairedDevices() {
@@ -152,29 +159,29 @@ class HudViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { profileRepository.delete(id) }
     }
 
-    fun updateElement(profileId: String, element: HudElementConfig) {
-        elementUpdates.tryEmit(profileId to element)
+    fun updateElement(profileId: String, element: HudElementConfig, isPortrait: Boolean = false) {
+        elementUpdates.tryEmit(Triple(profileId, element, isPortrait))
     }
 
     fun updateProfileScale(profileId: String, scale: Float) {
         scaleUpdates.tryEmit(profileId to scale)
     }
 
-    fun addElement(profileId: String, type: HudWidgetType, x: Float, y: Float): HudElementConfig {
+    fun addElement(profileId: String, type: HudWidgetType, x: Float, y: Float, isPortrait: Boolean = false): HudElementConfig {
         val id = "${type.name.lowercase()}-${UUID.randomUUID()}"
         val element = defaultHudElement(type, id, x, y)
         viewModelScope.launch {
-            profileRepository.addElement(profileId, element)
+            profileRepository.addElement(profileId, element, isPortrait)
         }
         return element
     }
 
-    fun removeElement(profileId: String, elementId: String) {
-        viewModelScope.launch { profileRepository.removeElement(profileId, elementId) }
+    fun removeElement(profileId: String, elementId: String, isPortrait: Boolean = false) {
+        viewModelScope.launch { profileRepository.removeElement(profileId, elementId, isPortrait) }
     }
 
-    fun moveElement(profileId: String, elementId: String, move: HudLayerMove) {
-        viewModelScope.launch { profileRepository.moveElement(profileId, elementId, move) }
+    fun moveElement(profileId: String, elementId: String, move: HudLayerMove, isPortrait: Boolean = false) {
+        viewModelScope.launch { profileRepository.moveElement(profileId, elementId, move, isPortrait) }
     }
 
     fun acceptDebugPacket(packet: String) {

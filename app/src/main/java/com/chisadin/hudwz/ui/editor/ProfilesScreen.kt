@@ -65,8 +65,10 @@ fun ProfilesScreen(
                     Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = profile.id == activeProfile.id, onClick = { onSelect(profile.id) })
                         Column(Modifier.weight(1f)) {
+                            val visibleLandscape = profile.elements.count { it.visible }
+                            val visiblePortrait = profile.elementsFor(true).count { it.visible }
                             Text(profile.name, style = MaterialTheme.typography.titleLarge)
-                            Text("${profile.elements.count { it.visible }} thành phần đang hiện · tỷ lệ ${"%.0f".format(profile.hudScale * 100)}%")
+                            Text("Ngang: $visibleLandscape · Dọc: $visiblePortrait widget hiện · tỷ lệ ${"%.0f".format(profile.hudScale * 100)}%")
                         }
                         IconButton(
                             onClick = { dialog = ProfileDialog.Rename(profile) },

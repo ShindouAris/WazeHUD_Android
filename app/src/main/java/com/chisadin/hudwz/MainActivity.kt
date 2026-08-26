@@ -22,6 +22,8 @@ import com.chisadin.hudwz.ui.HudApp
 import com.chisadin.hudwz.ui.theme.HudwzTheme
 import com.chisadin.hudwz.viewmodel.HudViewModel
 
+import com.chisadin.hudwz.service.HudBluetoothService
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -40,6 +42,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        runCatching { HudBluetoothService.restore(this) }
     }
 }
 
@@ -67,7 +74,6 @@ private fun ComponentActivity.ApplyWindowBehavior(
             window.attributes = window.attributes.apply { screenBrightness = settings.brightness.coerceIn(.1f, 1f) }
         } else if (editorActive) {
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             if (settings.immersiveMode) {
                 controller.hide(WindowInsetsCompat.Type.systemBars())
                 controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE

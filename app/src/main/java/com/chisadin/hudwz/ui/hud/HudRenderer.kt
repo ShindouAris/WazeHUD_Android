@@ -116,6 +116,7 @@ fun HudRenderer(
     editing: Boolean = false,
     selectedId: String? = null,
     showInactiveInEditor: Boolean = false,
+    forcePortrait: Boolean? = null,
     onSelect: (String) -> Unit = {},
     onDoubleTap: (String) -> Unit = {},
     onElementChange: (HudElementConfig) -> Unit = {},
@@ -131,9 +132,11 @@ fun HudRenderer(
         val canvasWidthDp = with(density) { canvasWidthPx.toDp().value }
         val canvasHeightDp = with(density) { canvasHeightPx.toDp().value }
         val profileScale = profile.hudScale
-        profile.elements
+        val isPortrait = forcePortrait ?: (canvasHeightDp > canvasWidthDp)
+        val activeElements = profile.elementsFor(isPortrait)
+        activeElements
             .filter { it.visible || (editing && showInactiveInEditor) }
-            .filter { shouldRenderWidget(it.type, state) || (editing && showInactiveInEditor) }
+            .filter { editing || shouldRenderWidget(it.type, state, it) }
             .forEach { element ->
             val latestElement by rememberUpdatedState(element)
             val widthDp = element.widthDp * element.scale * profileScale
@@ -173,7 +176,7 @@ fun HudRenderer(
             Box(
                 modifier = Modifier.offset { IntOffset(xPx.roundToInt(), yPx.roundToInt()) },
             ) {
-                HudWidget(state, element, fontScale, elementModifier)
+                HudWidget(state, element, fontScale, elementModifier, editing)
                 if (editing && selectedId == element.id) {
                     FocusFrame(
                         modifier = Modifier.requiredSize(widthDp.dp, heightDp.dp),
@@ -322,6 +325,7 @@ private fun HudWidget(
     config: HudElementConfig,
     globalFontScale: Float,
     modifier: Modifier,
+    editing: Boolean = false,
 ) {
     val weight = when (config.fontWeight) {
         HudFontWeight.NORMAL -> FontWeight.Normal
@@ -358,11 +362,11 @@ private fun HudWidget(
                 align,
                 marquee = true,
             )
-            HudWidgetType.ETA -> HudTextWidget(state.eta ?: "--:--", config, globalFontScale, weight, align)
-            HudWidgetType.REMAINING -> HudTextWidget(remainingText(state), config, globalFontScale, weight, align)
+            HudWidgetType.ETA -> HudTextWidget(state.eta?.takeIf { it.isNotBlank() && it != "--:--" } ?: (if (editing) "09:32" else "--:--"), config, globalFontScale, weight, align)
+            HudWidgetType.REMAINING -> HudTextWidget(remainingText(state).ifBlank { if (editing) "18.5 km  ·  24 phút  ·  Đến lúc 09:32" else "" }, config, globalFontScale, weight, align)
             HudWidgetType.GPS -> StatusIcon(state.gpsAvailable, true, config)
             HudWidgetType.CONNECTION -> ConnectivityBatteryWidget(state.connected, config)
-            HudWidgetType.ALERTS -> AlertRail(state.alerts, config)
+            HudWidgetType.ALERTS -> AlertRail(state.alerts, config, editing)
             HudWidgetType.LANES -> LaneStrip(state.lanes)
             HudWidgetType.TRAFFIC_DELAY -> TrafficDelayWidget(state.trafficDelayMinutes, state.trafficSeverity, config, globalFontScale)
             HudWidgetType.CUSTOM_TEXT -> HudTextWidget(
@@ -372,7 +376,7 @@ private fun HudWidget(
                 weight,
                 align,
             )
-            HudWidgetType.CUSTOM_IMAGE -> CustomImageWidget(config.customImageUri, config.spacingDp)
+            HudWidgetType.CUSTOM_IMAGE -> CustomImageWidget(config.customImageUri, config.spacingDp, editing)
             HudWidgetType.PHONE_BATTERY -> ConnectivityBatteryWidget(state.connected, config)
         }
     }
@@ -588,11 +592,11 @@ private fun GeneratedSpeedLimitSign(
             )
         }
         Text(
-            text = limit?.toString() ?: "—",
+            text = if (limit != null && limit > 0) limit.toString() else "?",
             color = Color.Black,
             fontSize = fontSizeSp.sp,
             fontWeight = FontWeight.Black,
-            fontFamily = if (limit != null) numberFont else FontFamily.SansSerif,
+            fontFamily = if (limit != null && limit > 0) numberFont else FontFamily.SansSerif,
             maxLines = 1,
         )
     }
@@ -705,9 +709,14 @@ private fun HudTextWidget(
 }
 
 @Composable
-private fun CustomImageWidget(uri: String?, spacingDp: Float) {
+private fun CustomImageWidget(uri: String?, spacingDp: Float, editing: Boolean = false) {
     val bitmap = rememberCustomImageBitmap(uri)
-    Box(Modifier.fillMaxSize().padding(spacingDp.dp), contentAlignment = Alignment.Center) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .padding(spacingDp.dp),
+        contentAlignment = Alignment.Center,
+    ) {
         if (bitmap != null) {
             Image(
                 bitmap = bitmap,
@@ -715,13 +724,34 @@ private fun CustomImageWidget(uri: String?, spacingDp: Float) {
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize(),
             )
-        } else {
-            Icon(
-                Icons.Rounded.ImageIcon,
-                contentDescription = "Chưa chọn ảnh tùy chỉnh",
-                tint = HudMuted.copy(alpha = .38f),
-                modifier = Modifier.fillMaxSize().padding(10.dp),
-            )
+        } else if (editing) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(HudSurface.copy(alpha = 0.7f))
+                    .border(1.dp, HudCyan.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                    .padding(6.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Icon(
+                        Icons.Rounded.ImageIcon,
+                        contentDescription = "Chưa chọn ảnh tùy chỉnh",
+                        tint = HudCyan,
+                        modifier = Modifier.size(28.dp),
+                    )
+                    Text(
+                        text = "Chọn ảnh",
+                        color = HudText,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+            }
         }
     }
 }
@@ -883,16 +913,36 @@ private fun BluetoothSignalBars(active: Boolean, modifier: Modifier) {
 }
 
 @Composable
-private fun AlertRail(alerts: List<HudAlert>, config: HudElementConfig) {
-    val vertical = config.orientation != HudElementOrientation.HORIZONTAL
+private fun AlertRail(alerts: List<HudAlert>, config: HudElementConfig, editing: Boolean = false) {
     BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        val count = alerts.take(4).size.coerceAtLeast(1)
-        val availablePerItem = if (vertical) maxHeight.value / count else maxWidth.value / count
-        val crossAxis = if (vertical) maxWidth.value else maxHeight.value
-        val iconSize = min(config.iconSizeDp, min(availablePerItem * .7f, crossAxis * .78f)).coerceAtLeast(6f)
+        val isHorizontal = when (config.orientation) {
+            HudElementOrientation.HORIZONTAL -> true
+            HudElementOrientation.VERTICAL -> false
+            HudElementOrientation.AUTO -> maxWidth.value > maxHeight.value
+        }
+        val length = if (isHorizontal) maxWidth.value else maxHeight.value
+        val crossAxis = if (isHorizontal) maxHeight.value else maxWidth.value
+        val maxBadgeHeight = (crossAxis - 18f).coerceAtLeast(14f)
+        val estItemSize = if (isHorizontal) {
+            (config.iconSizeDp * 0.9f + config.spacingDp).coerceAtLeast(28f)
+        } else {
+            (config.iconSizeDp * 0.82f + 18f + config.spacingDp).coerceAtLeast(32f)
+        }
+        val maxFit = (length / estItemSize).toInt().coerceIn(1, if (isHorizontal) 8 else 5)
+        val effectiveAlerts = if (alerts.isEmpty() && editing) {
+            listOf(HudAlert(2, 300), HudAlert(8, 600, 60), HudAlert(3, 1200))
+        } else alerts
+        val displayAlerts = effectiveAlerts.sortedBy { it.distanceMeters }.take(maxFit)
+        val count = displayAlerts.size.coerceAtLeast(1)
+        val availablePerItem = ((length - (count - 1) * config.spacingDp) / count).coerceAtLeast(10f)
+        val iconSize = min(
+            config.iconSizeDp,
+            min(availablePerItem * 0.82f, maxBadgeHeight),
+        ).coerceAtLeast(8f)
+
         val content: @Composable () -> Unit = {
-            alerts.take(4).forEach { alert -> AlertBadge(alert, iconSize) }
-            if (alerts.isEmpty()) {
+            displayAlerts.forEach { alert -> AlertBadge(alert, iconSize) }
+            if (displayAlerts.isEmpty()) {
                 Icon(
                     Icons.Rounded.Warning,
                     contentDescription = null,
@@ -901,8 +951,17 @@ private fun AlertRail(alerts: List<HudAlert>, config: HudElementConfig) {
                 )
             }
         }
-        if (vertical) Column(verticalArrangement = Arrangement.spacedBy(config.spacingDp.dp), horizontalAlignment = Alignment.CenterHorizontally) { content() }
-        else Row(horizontalArrangement = Arrangement.spacedBy(config.spacingDp.dp), verticalAlignment = Alignment.CenterVertically) { content() }
+        if (isHorizontal) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(config.spacingDp.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) { content() }
+        } else {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(config.spacingDp.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) { content() }
+        }
     }
 }
 
@@ -1085,21 +1144,23 @@ private fun widgetDescription(type: HudWidgetType, state: HudState): String = wh
     HudWidgetType.PHONE_BATTERY -> "Bluetooth và pin điện thoại"
 }
 
-private fun shouldRenderWidget(type: HudWidgetType, state: HudState): Boolean = when (type) {
-    HudWidgetType.SPEED, HudWidgetType.SPEED_NUMBER, HudWidgetType.SPEED_LIMIT,
+private fun shouldRenderWidget(type: HudWidgetType, state: HudState, config: HudElementConfig): Boolean = when (type) {
+    HudWidgetType.SPEED, HudWidgetType.SPEED_NUMBER,
+    HudWidgetType.SPEED_LIMIT,
     HudWidgetType.GPS, HudWidgetType.CONNECTION -> true
     HudWidgetType.SPEED_LIMIT_BAR -> state.speedLimit != null
-    HudWidgetType.TURN -> state.turn != TurnType.NONE
-    HudWidgetType.NEXT_TURN -> state.nextTurn != TurnType.NONE
-    HudWidgetType.DISTANCE -> state.turn != TurnType.NONE && state.distanceMeters != null
+    HudWidgetType.TURN -> state.navigating && state.turn != TurnType.NONE
+    HudWidgetType.NEXT_TURN -> state.navigating && state.nextTurn != TurnType.NONE
+    HudWidgetType.DISTANCE -> state.navigating && state.turn != TurnType.NONE && state.distanceMeters != null
     HudWidgetType.STREET -> !state.street.isNullOrBlank()
-    HudWidgetType.NEXT_STREET -> state.turn != TurnType.NONE && !state.nextStreet.isNullOrBlank()
-    HudWidgetType.ETA -> !state.eta.isNullOrBlank()
-    HudWidgetType.REMAINING -> state.remainingMeters != null || state.remainingKm != null || state.remainingMinutes != null
+    HudWidgetType.NEXT_STREET -> state.navigating && state.turn != TurnType.NONE && !state.nextStreet.isNullOrBlank()
+    HudWidgetType.ETA -> state.navigating && !state.eta.isNullOrBlank() && state.eta != "--:--"
+    HudWidgetType.REMAINING -> state.navigating && (state.remainingMeters != null || state.remainingKm != null || (state.remainingMinutes != null && state.remainingMinutes > 0))
     HudWidgetType.ALERTS -> state.alerts.isNotEmpty()
-    HudWidgetType.LANES -> state.lanes.isNotEmpty()
+    HudWidgetType.LANES -> state.navigating && state.lanes.isNotEmpty()
     HudWidgetType.TRAFFIC_DELAY -> (state.trafficDelayMinutes ?: 0) > 0
-    HudWidgetType.CUSTOM_TEXT, HudWidgetType.CUSTOM_IMAGE, HudWidgetType.PHONE_BATTERY -> true
+    HudWidgetType.CUSTOM_TEXT, HudWidgetType.PHONE_BATTERY -> true
+    HudWidgetType.CUSTOM_IMAGE -> !config.customImageUri.isNullOrBlank()
 }
 
 private fun formatDistance(meters: Int?): String = when {
@@ -1110,10 +1171,12 @@ private fun formatDistance(meters: Int?): String = when {
 }
 
 private fun remainingText(state: HudState): String {
-    val distance = state.remainingMeters?.let(::formatDistance)
-        ?: state.remainingKm?.let { "%.1f km".format(it) }
-    val minutes = state.remainingMinutes?.let { if (it < 60) "$it phút" else "${it / 60} giờ ${it % 60} phút" }
-    return listOfNotNull(distance, minutes, state.eta?.let { "Đến lúc $it" }).joinToString("  ·  ").ifBlank { "—" }
+    if (!state.navigating) return ""
+    val distance = state.remainingMeters?.takeIf { it > 0 }?.let(::formatDistance)
+        ?: state.remainingKm?.takeIf { it > 0.0 }?.let { "%.1f km".format(it) }
+    val minutes = state.remainingMinutes?.takeIf { it > 0 }?.let { if (it < 60) "$it phút" else "${it / 60} giờ ${it % 60} phút" }
+    val eta = state.eta?.takeIf { it.isNotBlank() && it != "--:--" }?.let { "Đến lúc $it" }
+    return listOfNotNull(distance, minutes, eta).joinToString("  ·  ").ifBlank { "" }
 }
 
 private fun laneAngle(bit: Int): Float = when (bit) {

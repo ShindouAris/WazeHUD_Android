@@ -175,14 +175,22 @@ data class HudProfile(
     val id: String,
     val name: String,
     val hudScale: Float = 1f,
-    val layoutVersion: Int = 1,
+    val layoutVersion: Int = 4,
     val elements: List<HudElementConfig>,
+    val portraitElements: List<HudElementConfig> = emptyList(),
 ) {
+    fun elementsFor(isPortrait: Boolean): List<HudElementConfig> =
+        if (isPortrait) {
+            if (portraitElements.isNotEmpty()) portraitElements else defaultPortraitElementsFor(this)
+        } else {
+            elements
+        }
+
     companion object {
         fun defaultProfile() = HudProfile(
             id = "default",
             name = "Mặc định",
-            layoutVersion = 3,
+            layoutVersion = 4,
             elements = listOf(
                 HudElementConfig("lanes", HudWidgetType.LANES, 22f, 14f, 250f, 54f),
                 HudElementConfig("turn", HudWidgetType.TURN, 42f, 76f, 120f, 120f, iconSizeDp = 108f),
@@ -194,12 +202,13 @@ data class HudProfile(
                 HudElementConfig("alerts", HudWidgetType.ALERTS, 690f, 48f, 92f, 210f, iconSizeDp = 48f, orientation = HudElementOrientation.VERTICAL),
                 HudElementConfig("connection", HudWidgetType.CONNECTION, 650f, 306f, 132f, 38f, fontSizeSp = 12f),
             ),
+            portraitElements = defaultPortraitProfileElements(),
         )
 
         fun minimalProfile() = HudProfile(
             id = "minimal",
             name = "Tối giản",
-            layoutVersion = 3,
+            layoutVersion = 4,
             elements = listOf(
                 HudElementConfig("turn", HudWidgetType.TURN, 42f, 86f, 130f, 130f, iconSizeDp = 117f),
                 HudElementConfig("distance", HudWidgetType.DISTANCE, 36f, 224f, 150f, 44f, fontSizeSp = 28f),
@@ -207,17 +216,71 @@ data class HudProfile(
                 HudElementConfig("limit", HudWidgetType.SPEED_LIMIT, 570f, 105f, 126f, 126f, fontSizeSp = 48f),
                 HudElementConfig("street", HudWidgetType.STREET, 270f, 292f, 320f, 42f, fontSizeSp = 21f),
             ),
+            portraitElements = minimalPortraitProfileElements(),
         )
 
         fun largeSpeedProfile() = HudProfile(
             id = "large-speed",
             name = "Tốc độ lớn",
-            layoutVersion = 3,
+            layoutVersion = 4,
             elements = listOf(
                 HudElementConfig("speed", HudWidgetType.SPEED, 220f, 18f, 320f, 320f, fontSizeSp = 112f),
                 HudElementConfig("limit", HudWidgetType.SPEED_LIMIT, 570f, 78f, 150f, 150f, fontSizeSp = 56f),
                 HudElementConfig("connection", HudWidgetType.CONNECTION, 638f, 306f, 144f, 38f, fontSizeSp = 12f),
             ),
+            portraitElements = largeSpeedPortraitProfileElements(),
+        )
+    }
+}
+
+fun defaultPortraitProfileElements(): List<HudElementConfig> = listOf(
+    HudElementConfig("lanes", HudWidgetType.LANES, 16f, 16f, 328f, 54f),
+    HudElementConfig("turn", HudWidgetType.TURN, 24f, 82f, 130f, 130f, iconSizeDp = 118f),
+    HudElementConfig("distance", HudWidgetType.DISTANCE, 18f, 222f, 142f, 44f, fontSizeSp = 28f),
+    HudElementConfig("limit", HudWidgetType.SPEED_LIMIT, 194f, 82f, 142f, 142f, fontSizeSp = 56f),
+    HudElementConfig("speed", HudWidgetType.SPEED, 55f, 276f, 250f, 150f, fontSizeSp = 84f),
+    HudElementConfig("street", HudWidgetType.STREET, 20f, 440f, 320f, 44f, fontSizeSp = 21f),
+    HudElementConfig("remaining", HudWidgetType.REMAINING, 20f, 492f, 320f, 40f, fontSizeSp = 17f),
+    HudElementConfig("alerts", HudWidgetType.ALERTS, 20f, 546f, 320f, 110f, iconSizeDp = 48f, orientation = HudElementOrientation.HORIZONTAL),
+    HudElementConfig("connection", HudWidgetType.CONNECTION, 100f, 690f, 160f, 38f, fontSizeSp = 13f),
+)
+
+fun minimalPortraitProfileElements(): List<HudElementConfig> = listOf(
+    HudElementConfig("turn", HudWidgetType.TURN, 24f, 70f, 130f, 130f, iconSizeDp = 118f),
+    HudElementConfig("distance", HudWidgetType.DISTANCE, 20f, 210f, 140f, 44f, fontSizeSp = 28f),
+    HudElementConfig("limit", HudWidgetType.SPEED_LIMIT, 196f, 70f, 140f, 140f, fontSizeSp = 56f),
+    HudElementConfig("speed", HudWidgetType.SPEED, 55f, 280f, 250f, 180f, fontSizeSp = 90f),
+    HudElementConfig("street", HudWidgetType.STREET, 20f, 480f, 320f, 44f, fontSizeSp = 21f),
+)
+
+fun largeSpeedPortraitProfileElements(): List<HudElementConfig> = listOf(
+    HudElementConfig("speed", HudWidgetType.SPEED, 30f, 120f, 300f, 300f, fontSizeSp = 120f),
+    HudElementConfig("limit", HudWidgetType.SPEED_LIMIT, 105f, 450f, 150f, 150f, fontSizeSp = 60f),
+    HudElementConfig("connection", HudWidgetType.CONNECTION, 100f, 650f, 160f, 38f, fontSizeSp = 13f),
+)
+
+fun defaultPortraitElementsFor(profile: HudProfile): List<HudElementConfig> = when (profile.id) {
+    "default" -> defaultPortraitProfileElements()
+    "minimal" -> minimalPortraitProfileElements()
+    "large-speed" -> largeSpeedPortraitProfileElements()
+    else -> {
+        val adapted = autoAdaptToPortrait(profile.elements)
+        if (adapted.isNotEmpty()) adapted else defaultPortraitProfileElements()
+    }
+}
+
+fun autoAdaptToPortrait(elements: List<HudElementConfig>): List<HudElementConfig> {
+    return elements.mapIndexed { index, element ->
+        val safeWidth = element.widthDp.coerceAtMost(320f)
+        val safeHeight = if (element.type.locksAspectRatio) safeWidth else element.heightDp.coerceAtMost(250f)
+        val x = ((HUD_PORTRAIT_REFERENCE_WIDTH_DP - safeWidth) / 2f).coerceAtLeast(0f)
+        val y = (index * 75f + 20f).coerceIn(0f, HUD_PORTRAIT_REFERENCE_HEIGHT_DP - safeHeight)
+        element.copy(
+            x = x,
+            y = y,
+            widthDp = safeWidth,
+            heightDp = safeHeight,
+            orientation = if (element.type == HudWidgetType.ALERTS) HudElementOrientation.HORIZONTAL else element.orientation,
         )
     }
 }
@@ -225,12 +288,15 @@ data class HudProfile(
 fun emptyHudProfile(id: String, name: String): HudProfile = HudProfile(
     id = id,
     name = name,
-    layoutVersion = 3,
+    layoutVersion = 4,
     elements = emptyList(),
+    portraitElements = emptyList(),
 )
 
 const val HUD_REFERENCE_WIDTH_DP = 800f
 const val HUD_REFERENCE_HEIGHT_DP = 360f
+const val HUD_PORTRAIT_REFERENCE_WIDTH_DP = 360f
+const val HUD_PORTRAIT_REFERENCE_HEIGHT_DP = 800f
 
 fun migrateHudProfile(profile: HudProfile): HudProfile {
     val positioned = if (profile.layoutVersion >= 2) profile else profile.copy(
@@ -245,21 +311,25 @@ fun migrateHudProfile(profile: HudProfile): HudProfile {
             )
         },
     )
-    if (positioned.layoutVersion >= 3) return positioned
-    val hasConnection = positioned.elements.any { it.type == HudWidgetType.CONNECTION }
-    var convertedBattery = false
-    val mergedElements = positioned.elements.mapNotNull { element ->
-        when {
-            element.type != HudWidgetType.PHONE_BATTERY -> element
-            hasConnection -> null
-            !convertedBattery -> {
-                convertedBattery = true
-                element.copy(type = HudWidgetType.CONNECTION)
+    val v3 = if (positioned.layoutVersion >= 3) positioned else {
+        val hasConnection = positioned.elements.any { it.type == HudWidgetType.CONNECTION }
+        var convertedBattery = false
+        val mergedElements = positioned.elements.mapNotNull { element ->
+            when {
+                element.type != HudWidgetType.PHONE_BATTERY -> element
+                hasConnection -> null
+                !convertedBattery -> {
+                    convertedBattery = true
+                    element.copy(type = HudWidgetType.CONNECTION)
+                }
+                else -> null
             }
-            else -> null
         }
+        positioned.copy(layoutVersion = 3, elements = mergedElements)
     }
-    return positioned.copy(layoutVersion = 3, elements = mergedElements)
+    if (v3.layoutVersion >= 4) return v3
+    val portrait = if (v3.portraitElements.isNotEmpty()) v3.portraitElements else defaultPortraitElementsFor(v3)
+    return v3.copy(layoutVersion = 4, portraitElements = portrait)
 }
 
 @Serializable
@@ -276,7 +346,7 @@ data class HudSettings(
     val preferredDeviceName: String? = null,
     val connectionTimeoutSeconds: Int = 15,
     val mirrorMode: Boolean = false,
-    val orientation: HudOrientation = HudOrientation.LANDSCAPE,
+    val orientation: HudOrientation = HudOrientation.SENSOR,
     val brightness: Float = 1f,
     val keepScreenAwake: Boolean = true,
     val immersiveMode: Boolean = true,

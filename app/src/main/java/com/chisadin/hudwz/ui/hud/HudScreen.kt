@@ -16,6 +16,9 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Flip
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
+import androidx.compose.material.icons.rounded.ScreenRotation
+import androidx.compose.material.icons.rounded.StayCurrentLandscape
+import androidx.compose.material.icons.rounded.StayCurrentPortrait
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +37,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.chisadin.hudwz.domain.HudOrientation
 import com.chisadin.hudwz.domain.HudProfile
 import com.chisadin.hudwz.domain.HudSettings
 import com.chisadin.hudwz.domain.HudState
@@ -45,6 +49,7 @@ fun HudScreen(
     settings: HudSettings,
     onExit: () -> Unit,
     onMirrorChanged: (Boolean) -> Unit,
+    onOrientationChanged: (HudOrientation) -> Unit = {},
 ) {
     var touchLocked by remember { mutableStateOf(settings.preventAccidentalTouches) }
     LaunchedEffect(settings.preventAccidentalTouches) {
@@ -56,17 +61,47 @@ fun HudScreen(
             .background(Color.Black)
             .windowInsetsPadding(WindowInsets.displayCutout),
     ) {
+        val forcePortrait = when (settings.orientation) {
+            HudOrientation.PORTRAIT -> true
+            HudOrientation.LANDSCAPE -> false
+            HudOrientation.SENSOR -> null
+        }
         HudRenderer(
             state = state,
             profile = profile,
             mirror = settings.mirrorMode,
             fontScale = settings.fontScale,
             modifier = Modifier.fillMaxSize(),
+            forcePortrait = forcePortrait,
         )
         if (!touchLocked) {
             Row(
                 modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
             ) {
+                HudControlButton(
+                    label = when (settings.orientation) {
+                        HudOrientation.SENSOR -> "Xoay HUD: Theo cảm biến (Chạm để đổi)"
+                        HudOrientation.PORTRAIT -> "Xoay HUD: Dọc cố định (Chạm để đổi)"
+                        HudOrientation.LANDSCAPE -> "Xoay HUD: Ngang cố định (Chạm để đổi)"
+                    },
+                    onClick = {
+                        val next = when (settings.orientation) {
+                            HudOrientation.SENSOR -> HudOrientation.PORTRAIT
+                            HudOrientation.PORTRAIT -> HudOrientation.LANDSCAPE
+                            HudOrientation.LANDSCAPE -> HudOrientation.SENSOR
+                        }
+                        onOrientationChanged(next)
+                    },
+                ) {
+                    Icon(
+                        when (settings.orientation) {
+                            HudOrientation.SENSOR -> Icons.Rounded.ScreenRotation
+                            HudOrientation.PORTRAIT -> Icons.Rounded.StayCurrentPortrait
+                            HudOrientation.LANDSCAPE -> Icons.Rounded.StayCurrentLandscape
+                        },
+                        contentDescription = null,
+                    )
+                }
                 HudControlButton("Lật gương HUD", onClick = { onMirrorChanged(!settings.mirrorMode) }) {
                     Icon(Icons.Rounded.Flip, contentDescription = null)
                 }

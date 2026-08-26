@@ -134,11 +134,11 @@ fun HudApp(
                     profile = activeProfile,
                     fontScale = settings.fontScale,
                     onBack = navController::popBackStack,
-                    onElementChange = { viewModel.updateElement(activeProfile.id, it) },
+                    onElementChange = { element, isPortrait -> viewModel.updateElement(activeProfile.id, element, isPortrait) },
                     onScaleChange = { viewModel.updateProfileScale(activeProfile.id, it) },
-                    onAddElement = { type, x, y -> viewModel.addElement(activeProfile.id, type, x, y) },
-                    onRemoveElement = { viewModel.removeElement(activeProfile.id, it) },
-                    onMoveElement = { id, move -> viewModel.moveElement(activeProfile.id, id, move) },
+                    onAddElement = { type, x, y, isPortrait -> viewModel.addElement(activeProfile.id, type, x, y, isPortrait) },
+                    onRemoveElement = { id, isPortrait -> viewModel.removeElement(activeProfile.id, id, isPortrait) },
+                    onMoveElement = { id, move, isPortrait -> viewModel.moveElement(activeProfile.id, id, move, isPortrait) },
                 )
             }
             composable("hud") {
@@ -148,6 +148,7 @@ fun HudApp(
                     settings = settings,
                     onExit = navController::popBackStack,
                     onMirrorChanged = { mirror -> viewModel.updateSettings { it.copy(mirrorMode = mirror) } },
+                    onOrientationChanged = { orient -> viewModel.updateSettings { it.copy(orientation = orient) } },
                 )
             }
         }

@@ -9,6 +9,7 @@ import com.chisadin.hudwz.domain.HudLayerMove
 import com.chisadin.hudwz.domain.reorderHudElements
 import com.chisadin.hudwz.domain.migrateHudProfile
 import com.chisadin.hudwz.domain.emptyHudProfile
+import com.chisadin.hudwz.domain.defaultPortraitProfileElements
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
@@ -41,9 +42,12 @@ class ProfileRepository(
     suspend fun select(id: String) = context.hudDataStore.edit { it[ACTIVE] = id }
 
     suspend fun create(name: String): HudProfile {
-        val profile = emptyHudProfile(
+        val profile = HudProfile(
             id = UUID.randomUUID().toString(),
             name = name.trim().ifBlank { "Custom" },
+            layoutVersion = 4,
+            elements = HudProfile.defaultProfile().elements,
+            portraitElements = defaultPortraitProfileElements(),
         )
         mutate { it + profile }
         select(profile.id)
@@ -71,33 +75,55 @@ class ProfileRepository(
         select(remaining.first().id)
     }
 
-    suspend fun updateElement(profileId: String, element: HudElementConfig) = mutate { all ->
+    suspend fun updateElement(profileId: String, element: HudElementConfig, isPortrait: Boolean = false) = mutate { all ->
         all.map { profile ->
-            if (profile.id != profileId) profile else profile.copy(
-                elements = profile.elements.map { if (it.id == element.id) element else it },
-            )
+            if (profile.id != profileId) profile else {
+                if (isPortrait) {
+                    val currentPortrait = if (profile.portraitElements.isNotEmpty()) profile.portraitElements else profile.elementsFor(true)
+                    profile.copy(portraitElements = currentPortrait.map { if (it.id == element.id) element else it })
+                } else {
+                    profile.copy(elements = profile.elements.map { if (it.id == element.id) element else it })
+                }
+            }
         }
     }
 
-    suspend fun addElement(profileId: String, element: HudElementConfig) = mutate { all ->
+    suspend fun addElement(profileId: String, element: HudElementConfig, isPortrait: Boolean = false) = mutate { all ->
         all.map { profile ->
-            if (profile.id == profileId) profile.copy(elements = profile.elements + element) else profile
+            if (profile.id != profileId) profile else {
+                if (isPortrait) {
+                    val currentPortrait = if (profile.portraitElements.isNotEmpty()) profile.portraitElements else profile.elementsFor(true)
+                    profile.copy(portraitElements = currentPortrait + element)
+                } else {
+                    profile.copy(elements = profile.elements + element)
+                }
+            }
         }
     }
 
-    suspend fun removeElement(profileId: String, elementId: String) = mutate { all ->
+    suspend fun removeElement(profileId: String, elementId: String, isPortrait: Boolean = false) = mutate { all ->
         all.map { profile ->
-            if (profile.id == profileId) profile.copy(
-                elements = profile.elements.filterNot { it.id == elementId },
-            ) else profile
+            if (profile.id != profileId) profile else {
+                if (isPortrait) {
+                    val currentPortrait = if (profile.portraitElements.isNotEmpty()) profile.portraitElements else profile.elementsFor(true)
+                    profile.copy(portraitElements = currentPortrait.filterNot { it.id == elementId })
+                } else {
+                    profile.copy(elements = profile.elements.filterNot { it.id == elementId })
+                }
+            }
         }
     }
 
-    suspend fun moveElement(profileId: String, elementId: String, move: HudLayerMove) = mutate { all ->
+    suspend fun moveElement(profileId: String, elementId: String, move: HudLayerMove, isPortrait: Boolean = false) = mutate { all ->
         all.map { profile ->
-            if (profile.id == profileId) profile.copy(
-                elements = reorderHudElements(profile.elements, elementId, move),
-            ) else profile
+            if (profile.id != profileId) profile else {
+                if (isPortrait) {
+                    val currentPortrait = if (profile.portraitElements.isNotEmpty()) profile.portraitElements else profile.elementsFor(true)
+                    profile.copy(portraitElements = reorderHudElements(currentPortrait, elementId, move))
+                } else {
+                    profile.copy(elements = reorderHudElements(profile.elements, elementId, move))
+                }
+            }
         }
     }
 

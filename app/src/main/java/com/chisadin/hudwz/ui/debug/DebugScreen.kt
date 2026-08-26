@@ -44,36 +44,46 @@ fun DebugScreen(
     var packet by remember {
         mutableStateOf("{\"v\":1,\"t\":\"s\",\"nav\":1,\"spd\":85,\"lim\":80,\"over\":1,\"trn\":3,\"dst\":350,\"st\":\"QL1A\",\"eta\":\"09:32\",\"rmin\":24,\"rkm\":18.5,\"ts\":1}")
     }
-    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(Modifier.fillMaxWidth()) {
-            Column(Modifier.weight(1f)) {
-                Text("Chẩn đoán", style = MaterialTheme.typography.headlineLarge)
-                Text("Theo dõi Bluetooth và HLP/1", color = MaterialTheme.colorScheme.onSurfaceVariant)
+    LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item {
+            Row(Modifier.fillMaxWidth()) {
+                Column(Modifier.weight(1f)) {
+                    Text("Chẩn đoán", style = MaterialTheme.typography.headlineLarge)
+                    Text("Theo dõi Bluetooth và HLP/1", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Button(onClick = {
+                    context.startActivity(
+                        Intent.createChooser(
+                            Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, diagnostics()),
+                            "Xuất dữ liệu chẩn đoán",
+                        ),
+                    )
+                }) { androidx.compose.material3.Icon(Icons.Rounded.Share, null); Text(" Xuất") }
             }
-            Button(onClick = {
-                context.startActivity(
-                    Intent.createChooser(
-                        Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, diagnostics()),
-                        "Xuất dữ liệu chẩn đoán",
-                    ),
-                )
-            }) { androidx.compose.material3.Icon(Icons.Rounded.Share, null); Text(" Xuất") }
         }
-        MetricCard(connection, metrics, parsedPacket)
-        OutlinedTextField(
-            value = packet,
-            onValueChange = { packet = it },
-            label = { Text("Chèn khung HLP cục bộ") },
-            modifier = Modifier.fillMaxWidth(),
-            minLines = 2,
-        )
-        Button(onClick = { onInject(packet) }) { Text("Phân tích khung") }
-        Text("Hoạt động gần đây", style = MaterialTheme.typography.titleLarge)
-        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            items(events.takeLast(100).reversed(), key = { "${it.elapsedMs}:${it.message}" }) { event ->
-                Text("${event.category} · ${event.message}", style = MaterialTheme.typography.bodyLarge)
-            }
-            if (rawPackets.isNotEmpty()) item { Text("Gói tin thô", style = MaterialTheme.typography.titleLarge) }
+        item {
+            MetricCard(connection, metrics, parsedPacket)
+        }
+        item {
+            OutlinedTextField(
+                value = packet,
+                onValueChange = { packet = it },
+                label = { Text("Chèn khung HLP cục bộ") },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 2,
+            )
+        }
+        item {
+            Button(onClick = { onInject(packet) }) { Text("Phân tích khung") }
+        }
+        item {
+            Text("Hoạt động gần đây", style = MaterialTheme.typography.titleLarge)
+        }
+        items(events.takeLast(100).reversed(), key = { "${it.elapsedMs}:${it.message}" }) { event ->
+            Text("${event.category} · ${event.message}", style = MaterialTheme.typography.bodyLarge)
+        }
+        if (rawPackets.isNotEmpty()) {
+            item { Text("Gói tin thô", style = MaterialTheme.typography.titleLarge) }
             items(rawPackets.takeLast(30).reversed()) { raw ->
                 Card(Modifier.fillMaxWidth()) { Text(raw, Modifier.padding(8.dp), style = MaterialTheme.typography.labelSmall) }
             }

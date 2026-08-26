@@ -80,6 +80,10 @@ class HudBluetoothService : Service() {
                 )
                 startConnection(device, listen = false)
             }
+            ACTION_RESTORE, null -> {
+                startForeground(NOTIFICATION_ID, notification("Đang khôi phục kết nối HUD"))
+                scope.launch { restoreConnectionIfEnabled() }
+            }
             else -> {
                 startForeground(NOTIFICATION_ID, notification("Đang khôi phục kết nối HUD"))
                 scope.launch { restoreConnectionIfEnabled() }
@@ -118,9 +122,10 @@ class HudBluetoothService : Service() {
         val settings = settingsRepository.settings.first()
         if (!settings.autoReconnect) return stopSelf()
         val address = settings.preferredDeviceAddress
-        if (address == null && settings.preferredTransport != TransportType.AUTO) {
-            startListening(settings.preferredTransport)
-        } else if (address != null) {
+        if (address == null) {
+            val transport = settings.preferredTransport.takeUnless { it == TransportType.AUTO } ?: TransportType.BLE
+            startListening(transport)
+        } else {
             startConnection(
                 BluetoothDeviceInfo(
                     address = address,
@@ -130,7 +135,7 @@ class HudBluetoothService : Service() {
                 ),
                 listen = false,
             )
-        } else stopSelf()
+        }
     }
 
     private suspend fun connectionLoop(device: BluetoothDeviceInfo) {
@@ -185,8 +190,8 @@ class HudBluetoothService : Service() {
             if (SystemClock.elapsedRealtime() - sessionStartedAt >= 30_000) attempt = 0
             if (manuallyStopped || !settings.autoReconnect) break
             attempt++
-            val base = min(48_000L, 1_500L shl min(attempt - 1, 5))
-            val delayMs = (base * Random.nextDouble(.8, 1.2)).toLong()
+            val base = if (receiverMode) 1_500L else min(48_000L, 1_500L shl min(attempt - 1, 5))
+            val delayMs = if (receiverMode) 1_500L else (base * Random.nextDouble(.8, 1.2)).toLong()
             repository.setConnection(
                 ConnectionState(ConnectionPhase.RECONNECTING, device, actualType, "Thử lại sau ${delayMs / 1_000.0} giây", attempt),
             )
@@ -250,7 +255,8 @@ class HudBluetoothService : Service() {
                     if (stale != null && stale > 3_000) {
                         repository.setConnection(ConnectionState(ConnectionPhase.CONNECTED, device, activeTransport.type, "Tín hiệu đã cũ: ${stale}ms"))
                     }
-                    if (stale != null && stale > timeoutMillis) {
+                    val effectiveTimeout = if (receiverMode) Long.MAX_VALUE else (timeoutMillis * 4).coerceAtLeast(60_000L)
+                    if (stale != null && stale > effectiveTimeout) {
                         throw IllegalStateException("Không có dữ liệu HLP trong ${stale}ms")
                     }
                 }
@@ -352,10 +358,16 @@ class HudBluetoothService : Service() {
         private const val ACTION_CONNECT = "com.chisadin.hudwz.CONNECT"
         private const val ACTION_LISTEN = "com.chisadin.hudwz.LISTEN"
         private const val ACTION_DISCONNECT = "com.chisadin.hudwz.DISCONNECT"
+        private const val ACTION_RESTORE = "com.chisadin.hudwz.RESTORE"
         private const val EXTRA_ADDRESS = "address"
         private const val EXTRA_NAME = "name"
         private const val EXTRA_TRANSPORT = "transport"
         private const val EXTRA_BONDED = "bonded"
+
+        fun restore(context: Context) {
+            val intent = Intent(context, HudBluetoothService::class.java).setAction(ACTION_RESTORE)
+            ContextCompat.startForegroundService(context, intent)
+        }
 
         fun connect(context: Context, device: BluetoothDeviceInfo) {
             val intent = Intent(context, HudBluetoothService::class.java)

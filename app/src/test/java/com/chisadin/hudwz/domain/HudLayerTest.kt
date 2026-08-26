@@ -65,16 +65,18 @@ class HudLayerTest {
             ),
         )
         val migrated = migrateHudProfile(legacy)
-        assertEquals(3, migrated.layoutVersion)
+        assertEquals(4, migrated.layoutVersion)
         assertEquals(350f, migrated.elements.single().x, .001f)
         assertEquals(65f, migrated.elements.single().y, .001f)
+        assertTrue(migrated.portraitElements.isNotEmpty())
     }
 
     @Test
     fun newProfileStartsAsEmptyLatestCanvas() {
         val profile = emptyHudProfile("new", "Custom")
-        assertEquals(3, profile.layoutVersion)
+        assertEquals(4, profile.layoutVersion)
         assertTrue(profile.elements.isEmpty())
+        assertTrue(profile.portraitElements.isEmpty())
     }
 
     @Test
@@ -85,8 +87,9 @@ class HudLayerTest {
 
         val migrated = migrateHudProfile(profile)
 
-        assertEquals(3, migrated.layoutVersion)
+        assertEquals(4, migrated.layoutVersion)
         assertEquals(listOf("connection"), migrated.elements.map { it.id })
         assertEquals(HudWidgetType.CONNECTION, migrated.elements.single().type)
+        assertTrue(migrated.portraitElements.isNotEmpty())
     }
 }

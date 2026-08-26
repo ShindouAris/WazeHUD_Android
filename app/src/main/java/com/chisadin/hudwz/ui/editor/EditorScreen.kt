@@ -28,7 +28,9 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
@@ -41,6 +43,8 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.StayCurrentLandscape
+import androidx.compose.material.icons.rounded.StayCurrentPortrait
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
@@ -53,6 +57,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import android.app.Activity
+import android.content.pm.ActivityInfo
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedIconButton
@@ -61,10 +67,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -109,16 +117,35 @@ fun EditorScreen(
     profile: HudProfile,
     fontScale: Float,
     onBack: () -> Unit,
-    onElementChange: (HudElementConfig) -> Unit,
+    onElementChange: (HudElementConfig, Boolean) -> Unit,
     onScaleChange: (Float) -> Unit,
-    onAddElement: (HudWidgetType, Float, Float) -> HudElementConfig,
-    onRemoveElement: (String) -> Unit,
-    onMoveElement: (String, HudLayerMove) -> Unit,
+    onAddElement: (HudWidgetType, Float, Float, Boolean) -> HudElementConfig,
+    onRemoveElement: (String, Boolean) -> Unit,
+    onMoveElement: (String, HudLayerMove, Boolean) -> Unit,
 ) {
     val density = LocalDensity.current
     val context = LocalContext.current
-    var selectedId by remember(profile.id) { mutableStateOf(profile.elements.firstOrNull()?.id) }
+    val activity = context as? Activity
+    var isPortraitMode by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(isPortraitMode) {
+        activity?.requestedOrientation = if (isPortraitMode) {
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
+
     var workingProfile by remember(profile.id) { mutableStateOf(profile) }
+    var selectedId by remember(profile.id, isPortraitMode) {
+        mutableStateOf(workingProfile.elementsFor(isPortraitMode).firstOrNull()?.id)
+    }
     var libraryOpen by remember { mutableStateOf(false) }
     var inspectorOpen by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(false) }
@@ -126,16 +153,20 @@ fun EditorScreen(
     var canvasBounds by remember { mutableStateOf(Rect.Zero) }
     var libraryDrag by remember { mutableStateOf<LibraryDrag?>(null) }
 
-    LaunchedEffect(profile.id) { selectedId = profile.elements.firstOrNull()?.id }
+    LaunchedEffect(profile.id, isPortraitMode) {
+        selectedId = workingProfile.elementsFor(isPortraitMode).firstOrNull()?.id
+    }
     LaunchedEffect(profile) {
         if (profile.id == workingProfile.id && profile != workingProfile) {
             workingProfile = profile
-            if (selectedId != null && profile.elements.none { it.id == selectedId }) {
-                selectedId = profile.elements.firstOrNull()?.id
+            val currentList = profile.elementsFor(isPortraitMode)
+            if (selectedId != null && currentList.none { it.id == selectedId }) {
+                selectedId = currentList.firstOrNull()?.id
             }
         }
     }
-    val selected = workingProfile.elements.firstOrNull { it.id == selectedId }
+    val currentElements = workingProfile.elementsFor(isPortraitMode)
+    val selected = currentElements.firstOrNull { it.id == selectedId }
     val previewState = PreviewHudState
 
     fun updateWorkingElement(next: HudElementConfig) {
@@ -154,10 +185,15 @@ fun EditorScreen(
                 ),
             )
         } else next
-        workingProfile = workingProfile.copy(
-            elements = workingProfile.elements.map { if (it.id == clamped.id) clamped else it },
-        )
-        onElementChange(clamped)
+        if (isPortraitMode) {
+            val list = workingProfile.elementsFor(true).map { if (it.id == clamped.id) clamped else it }
+            workingProfile = workingProfile.copy(portraitElements = list)
+            onElementChange(clamped, true)
+        } else {
+            val list = workingProfile.elements.map { if (it.id == clamped.id) clamped else it }
+            workingProfile = workingProfile.copy(elements = list)
+            onElementChange(clamped, false)
+        }
     }
 
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -175,22 +211,43 @@ fun EditorScreen(
         val prototype = defaultHudElement(type, "drop-preview")
         val x = (centerX - prototype.widthDp / 2f).coerceAtLeast(0f)
         val y = (centerY - prototype.heightDp / 2f).coerceAtLeast(0f)
-        val next = onAddElement(type, x, y)
-        workingProfile = workingProfile.copy(elements = workingProfile.elements + next)
+        val next = onAddElement(type, x, y, isPortraitMode)
+        if (isPortraitMode) {
+            val list = workingProfile.elementsFor(true) + next
+            workingProfile = workingProfile.copy(portraitElements = list)
+        } else {
+            val list = workingProfile.elements + next
+            workingProfile = workingProfile.copy(elements = list)
+        }
         selectedId = next.id
+        inspectorOpen = true
+        libraryOpen = false
     }
 
     fun removeWidget(id: String) {
-        workingProfile = workingProfile.copy(elements = workingProfile.elements.filterNot { it.id == id })
-        onRemoveElement(id)
-        selectedId = workingProfile.elements.lastOrNull()?.id
+        if (isPortraitMode) {
+            val list = workingProfile.elementsFor(true).filterNot { it.id == id }
+            workingProfile = workingProfile.copy(portraitElements = list)
+            onRemoveElement(id, true)
+            selectedId = list.lastOrNull()?.id
+        } else {
+            val list = workingProfile.elements.filterNot { it.id == id }
+            workingProfile = workingProfile.copy(elements = list)
+            onRemoveElement(id, false)
+            selectedId = list.lastOrNull()?.id
+        }
     }
 
     fun moveWidget(id: String, move: HudLayerMove) {
-        workingProfile = workingProfile.copy(
-            elements = reorderHudElements(workingProfile.elements, id, move),
-        )
-        onMoveElement(id, move)
+        if (isPortraitMode) {
+            val list = reorderHudElements(workingProfile.elementsFor(true), id, move)
+            workingProfile = workingProfile.copy(portraitElements = list)
+            onMoveElement(id, move, true)
+        } else {
+            val list = reorderHudElements(workingProfile.elements, id, move)
+            workingProfile = workingProfile.copy(elements = list)
+            onMoveElement(id, move, false)
+        }
     }
 
     fun finishLibraryDrag() {
@@ -212,13 +269,19 @@ fun EditorScreen(
     ) {
         CanvasWorkspace(
             profile = workingProfile,
+            isPortrait = isPortraitMode,
             state = previewState,
             fontScale = fontScale,
             showInactiveItems = showInactiveItems,
             selectedId = selectedId,
             modifier = Modifier.fillMaxSize(),
             onCanvasBounds = { canvasBounds = it },
-            onSelect = { selectedId = it },
+            onSelect = {
+                selectedId = it
+                inspectorOpen = true
+                libraryOpen = false
+                settingsOpen = false
+            },
             onDoubleTap = {
                 selectedId = it
                 inspectorOpen = true
@@ -245,6 +308,19 @@ fun EditorScreen(
                 settingsOpen = false
             }, active = libraryOpen) {
                 Icon(Icons.Rounded.Widgets, contentDescription = null)
+            }
+            FloatingEditorButton(
+                if (isPortraitMode) "Đang chỉnh: Bố cục Dọc" else "Đang chỉnh: Bố cục Ngang",
+                {
+                    isPortraitMode = !isPortraitMode
+                    selectedId = null
+                },
+                active = isPortraitMode,
+            ) {
+                Icon(
+                    if (isPortraitMode) Icons.Rounded.StayCurrentPortrait else Icons.Rounded.StayCurrentLandscape,
+                    contentDescription = null,
+                )
             }
             FloatingEditorButton("Bỏ chọn thành phần", {
                 selectedId = null
@@ -294,7 +370,7 @@ fun EditorScreen(
         if (inspectorOpen) {
             InspectorPanel(
                 element = selected,
-                modifier = Modifier.align(Alignment.TopEnd).padding(top = 62.dp).width(250.dp).fillMaxHeight().zIndex(5f),
+                modifier = Modifier.align(Alignment.TopEnd).padding(top = 62.dp).width(270.dp).fillMaxHeight().zIndex(5f),
                 onChange = ::updateWorkingElement,
                 onDelete = { selected?.id?.let(::removeWidget) },
                 onLayerMove = { move -> selected?.id?.let { moveWidget(it, move) } },
@@ -308,7 +384,7 @@ fun EditorScreen(
                 profileName = workingProfile.name,
                 scale = workingProfile.hudScale,
                 showInactiveItems = showInactiveItems,
-                modifier = Modifier.align(Alignment.TopEnd).padding(top = 62.dp).width(238.dp).zIndex(5f),
+                modifier = Modifier.align(Alignment.TopEnd).padding(top = 62.dp).width(270.dp).zIndex(5f),
                 onScaleChange = {
                     workingProfile = workingProfile.copy(hudScale = it)
                     onScaleChange(it)
@@ -367,6 +443,7 @@ private fun FloatingEditorButton(
 @Composable
 private fun CanvasWorkspace(
     profile: HudProfile,
+    isPortrait: Boolean,
     state: HudState,
     fontScale: Float,
     showInactiveItems: Boolean,
@@ -379,11 +456,18 @@ private fun CanvasWorkspace(
     onElementChange: (HudElementConfig) -> Unit,
 ) {
     Box(
-        modifier
-            .background(HudBlack)
-            .clickable(onClick = onClearFocus)
-            .onGloballyPositioned { onCanvasBounds(it.boundsInRoot()) },
+        modifier = modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
     ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(HudBlack)
+                .border(1.dp, HudCyan.copy(alpha = 0.25f), RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(onClick = onClearFocus)
+                .onGloballyPositioned { onCanvasBounds(it.boundsInRoot()) },
+        ) {
             HudRenderer(
                 state = state,
                 profile = profile,
@@ -392,11 +476,13 @@ private fun CanvasWorkspace(
                 modifier = Modifier.fillMaxSize(),
                 editing = true,
                 showInactiveInEditor = showInactiveItems,
+                forcePortrait = isPortrait,
                 selectedId = selectedId,
                 onSelect = onSelect,
                 onDoubleTap = onDoubleTap,
                 onElementChange = onElementChange,
             )
+        }
     }
 }
 
@@ -598,10 +684,35 @@ private fun InspectorPanel(
                     item { InspectorSlider("Cỡ chữ", element.fontSizeSp, 6f..140f, "${element.fontSizeSp.roundToInt()} sp") { onChange(element.copy(fontSizeSp = it)) } }
                 }
                 item { InspectorSlider("Khoảng cách", element.spacingDp, 0f..40f, "${element.spacingDp.roundToInt()} dp") { onChange(element.copy(spacingDp = it)) } }
-                if (element.type != HudWidgetType.CUSTOM_IMAGE) {
+                if (element.type != HudWidgetType.CUSTOM_IMAGE && element.type != HudWidgetType.ALERTS) {
                     item { EnumChips("Độ đậm", HudFontWeight.entries, element.fontWeight) { onChange(element.copy(fontWeight = it)) } }
                     item { EnumChips("Căn chỉnh", HudTextAlignment.entries, element.textAlignment) { onChange(element.copy(textAlignment = it)) } }
-                    item { EnumChips("Hướng", HudElementOrientation.entries, element.orientation) { onChange(element.copy(orientation = it)) } }
+                }
+                if (element.type != HudWidgetType.CUSTOM_IMAGE) {
+                    item {
+                        EnumChips("Hướng", HudElementOrientation.entries, element.orientation) { nextOrientation ->
+                            val updated = if (element.type == HudWidgetType.ALERTS) {
+                                if (nextOrientation == HudElementOrientation.HORIZONTAL && element.widthDp < element.heightDp) {
+                                    element.copy(
+                                        orientation = nextOrientation,
+                                        widthDp = maxOf(element.widthDp, element.heightDp, 240f),
+                                        heightDp = minOf(element.widthDp, element.heightDp).coerceIn(40f, 90f),
+                                    )
+                                } else if (nextOrientation == HudElementOrientation.VERTICAL && element.widthDp > element.heightDp) {
+                                    element.copy(
+                                        orientation = nextOrientation,
+                                        widthDp = minOf(element.widthDp, element.heightDp).coerceIn(50f, 90f),
+                                        heightDp = maxOf(element.widthDp, element.heightDp, 180f),
+                                    )
+                                } else {
+                                    element.copy(orientation = nextOrientation)
+                                }
+                            } else {
+                                element.copy(orientation = nextOrientation)
+                            }
+                            onChange(updated)
+                        }
+                    }
                 }
                 item {
                     OutlinedButton(onClick = onDelete, modifier = Modifier.fillMaxWidth()) {
@@ -630,7 +741,7 @@ private fun EditorSettingsPanel(
         shadowElevation = 12.dp,
         modifier = modifier,
     ) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.Settings, contentDescription = null, tint = HudCyan)
                 Column(Modifier.weight(1f).padding(start = 8.dp)) {
