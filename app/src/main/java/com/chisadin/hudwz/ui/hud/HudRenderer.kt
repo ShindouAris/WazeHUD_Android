@@ -109,8 +109,9 @@ import com.chisadin.hudwz.ui.theme.HudRed
 import com.chisadin.hudwz.ui.theme.HudSurface
 import com.chisadin.hudwz.ui.theme.HudSurfaceHigh
 import com.chisadin.hudwz.ui.theme.HudText
-import java.time.LocalTime
-import java.time.format.DateTimeFormatter
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.roundToInt
@@ -598,9 +599,9 @@ private fun ClockWidget(
     val numberFont = rememberHudNumberFont()
     var timeText by remember { mutableStateOf("") }
     LaunchedEffect(Unit) {
-        val formatter = DateTimeFormatter.ofPattern("HH:mm")
+        val formatter = SimpleDateFormat("HH:mm", Locale.getDefault())
         while (true) {
-            timeText = LocalTime.now().format(formatter)
+            timeText = formatter.format(Date())
             val delayMs = 1000L - (System.currentTimeMillis() % 1000L)
             kotlinx.coroutines.delay(delayMs)
         }
@@ -722,7 +723,7 @@ private fun TripProgressWidget(
     val textFont = rememberHudTextFont()
     val numberFont = rememberHudNumberFont()
 
-    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 4.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
