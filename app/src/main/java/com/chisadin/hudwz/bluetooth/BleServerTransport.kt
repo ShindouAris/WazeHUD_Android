@@ -54,7 +54,9 @@ class BleServerTransport(
 
     private val advertiseCallback = object : AdvertiseCallback() {
         override fun onStartFailure(errorCode: Int) {
-            fail("Quảng bá BLE thất bại: $errorCode")
+            if (errorCode != AdvertiseCallback.ADVERTISE_FAILED_ALREADY_STARTED) {
+                fail("Quảng bá BLE thất bại: $errorCode")
+            }
         }
     }
 
@@ -65,16 +67,19 @@ class BleServerTransport(
         }
 
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
-            if (status != BluetoothGatt.GATT_SUCCESS) return fail("Lỗi kết nối thiết bị ngoại vi BLE: $status")
             when (newState) {
-                // A GATT server can receive callbacks for unrelated active LE links. A peer only
-                // becomes the HLP client after it subscribes to our RX CCCD below.
-                BluetoothProfile.STATE_CONNECTED -> Unit
+                BluetoothProfile.STATE_CONNECTED -> {
+                    if (status != BluetoothGatt.GATT_SUCCESS) {
+                        fail("Lỗi kết nối thiết bị ngoại vi BLE: $status")
+                    }
+                }
                 BluetoothProfile.STATE_DISCONNECTED -> {
-                    if (remote?.address == device.address) {
+                    if (remote?.address == device.address || remote == null) {
                         remote = null
                         _status.value = TransportStatus.Disconnected("Waze Mod đã ngắt kết nối")
                     }
+                    runCatching { server?.cancelConnection(device) }
+                    startAdvertising()
                 }
             }
         }
@@ -223,6 +228,7 @@ class BleServerTransport(
 
     private fun startAdvertising() {
         val advertiser = adapter.bluetoothLeAdvertiser ?: return fail("Quảng bá BLE không khả dụng")
+        runCatching { advertiser.stopAdvertising(advertiseCallback) }
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)

@@ -96,9 +96,26 @@ class HudBluetoothService : Service() {
 
     override fun onDestroy() {
         connectionJob?.cancel()
-        scope.launch { transport?.disconnect() }
+        runCatching {
+            transport?.let { t ->
+                kotlinx.coroutines.runBlocking {
+                    kotlinx.coroutines.withTimeoutOrNull(1200) { t.disconnect() }
+                }
+            }
+        }
         scope.cancel()
         super.onDestroy()
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        runCatching {
+            transport?.let { t ->
+                kotlinx.coroutines.runBlocking {
+                    kotlinx.coroutines.withTimeoutOrNull(1200) { t.disconnect() }
+                }
+            }
+        }
     }
 
     private fun startConnection(device: BluetoothDeviceInfo, listen: Boolean) {
@@ -112,6 +129,16 @@ class HudBluetoothService : Service() {
 
     private fun startListening(type: TransportType) {
         val actualType = type.takeUnless { it == TransportType.AUTO } ?: TransportType.BLE
+        scope.launch {
+            settingsRepository.update { current ->
+                current.copy(
+                    isReceiverMode = true,
+                    preferredTransport = actualType,
+                    preferredDeviceAddress = null,
+                    preferredDeviceName = null,
+                )
+            }
+        }
         startConnection(
             BluetoothDeviceInfo("", "Waze Mod", actualType, bonded = false),
             listen = true,
@@ -122,7 +149,8 @@ class HudBluetoothService : Service() {
         val settings = settingsRepository.settings.first()
         if (!settings.autoReconnect) return stopSelf()
         val address = settings.preferredDeviceAddress
-        if (address == null) {
+        val isReceiver = settings.isReceiverMode || address.isNullOrBlank()
+        if (isReceiver) {
             val transport = settings.preferredTransport.takeUnless { it == TransportType.AUTO } ?: TransportType.BLE
             startListening(transport)
         } else {
@@ -227,10 +255,12 @@ class HudBluetoothService : Service() {
             updateNotification("Đã kết nối tới ${device.name}")
             settingsRepository.update { current ->
                 if (receiverMode) current.copy(
+                    isReceiverMode = true,
                     preferredDeviceAddress = null,
                     preferredDeviceName = null,
                     preferredTransport = activeTransport.type,
                 ) else current.copy(
+                    isReceiverMode = false,
                     preferredDeviceAddress = device.address,
                     preferredDeviceName = device.name,
                     preferredTransport = activeTransport.type,

@@ -141,19 +141,28 @@ fun ConnectionScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        val isListeningBle = (connection.phase == ConnectionPhase.CONNECTING || connection.phase == ConnectionPhase.CONNECTED || connection.phase == ConnectionPhase.RECONNECTING) &&
+                            connection.transport == TransportType.BLE && settings.isReceiverMode
+                        val isListeningClassic = (connection.phase == ConnectionPhase.CONNECTING || connection.phase == ConnectionPhase.CONNECTED || connection.phase == ConnectionPhase.RECONNECTING) &&
+                            connection.transport == TransportType.CLASSIC && settings.isReceiverMode
+
                         Button(
-                            onClick = { requestListen(TransportType.BLE) },
+                            onClick = {
+                                if (isListeningBle) onDisconnect() else requestListen(TransportType.BLE)
+                            },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Icon(Icons.Rounded.Bluetooth, contentDescription = null)
-                            Text(" Bật bộ nhận BLE")
+                            Icon(if (isListeningBle) Icons.Rounded.BluetoothConnected else Icons.Rounded.Bluetooth, contentDescription = null)
+                            Text(if (isListeningBle) " Bộ nhận BLE đang chạy (Bấm để dừng)" else " Bật bộ nhận BLE")
                         }
                         FilledTonalButton(
-                            onClick = { requestListen(TransportType.CLASSIC) },
+                            onClick = {
+                                if (isListeningClassic) onDisconnect() else requestListen(TransportType.CLASSIC)
+                            },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Icon(Icons.Rounded.Bluetooth, contentDescription = null)
-                            Text(" Bật bộ nhận Classic SPP")
+                            Icon(if (isListeningClassic) Icons.Rounded.BluetoothConnected else Icons.Rounded.Bluetooth, contentDescription = null)
+                            Text(if (isListeningClassic) " Bộ nhận Classic SPP đang chạy (Bấm để dừng)" else " Bật bộ nhận Classic SPP")
                         }
                     }
                 }
@@ -175,8 +184,8 @@ fun ConnectionScreen(
                 if (connection.phase == ConnectionPhase.CONNECTED || connection.phase == ConnectionPhase.CONNECTING || connection.phase == ConnectionPhase.RECONNECTING) {
                     OutlinedButton(onClick = onDisconnect) { Text("Ngắt kết nối") }
                 }
-                if (settings.preferredDeviceAddress != null) {
-                    OutlinedButton(onClick = onForget) { Text("Quên thiết bị") }
+                if (settings.preferredDeviceAddress != null || !settings.isReceiverMode) {
+                    OutlinedButton(onClick = onForget) { Text("Quên thiết bị đã lưu") }
                 }
             }
         }

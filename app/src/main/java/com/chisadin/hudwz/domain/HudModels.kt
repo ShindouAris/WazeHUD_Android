@@ -373,6 +373,7 @@ enum class HudThemeMode { SYSTEM, DAY, NIGHT }
 
 @Serializable
 data class HudSettings(
+    val isReceiverMode: Boolean = true,
     val preferredTransport: TransportType = TransportType.AUTO,
     val autoReconnect: Boolean = true,
     val preferredDeviceAddress: String? = null,

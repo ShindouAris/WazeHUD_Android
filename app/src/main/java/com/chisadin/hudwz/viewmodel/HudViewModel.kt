@@ -127,13 +127,25 @@ class HudViewModel(application: Application) : AndroidViewModel(application) {
 
     fun listen(type: TransportType) {
         stopScan()
+        updateSettings {
+            it.copy(
+                isReceiverMode = true,
+                preferredDeviceAddress = null,
+                preferredDeviceName = null,
+                preferredTransport = type,
+            )
+        }
         HudBluetoothService.listen(getApplication(), type)
     }
 
     fun disconnect() = HudBluetoothService.disconnect(getApplication())
 
     fun forgetSavedDevice() = updateSettings {
-        it.copy(preferredDeviceAddress = null, preferredDeviceName = null)
+        it.copy(
+            preferredDeviceAddress = null,
+            preferredDeviceName = null,
+            isReceiverMode = true,
+        )
     }
 
     fun updateSettings(transform: (HudSettings) -> HudSettings) {

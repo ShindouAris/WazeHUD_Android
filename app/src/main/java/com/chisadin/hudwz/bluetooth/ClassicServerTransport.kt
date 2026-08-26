@@ -39,6 +39,7 @@ class ClassicServerTransport(private val adapter: BluetoothAdapter) : BluetoothT
 
     override suspend fun connect(device: BluetoothDeviceInfo, timeoutMillis: Long) {
         disconnect()
+        kotlinx.coroutines.delay(250)
         _status.value = TransportStatus.Connecting
         val listener = adapter.listenUsingRfcommWithServiceRecord("HLP SPP", ClassicTransport.SPP_UUID)
         serverSocket = listener
@@ -67,6 +68,8 @@ class ClassicServerTransport(private val adapter: BluetoothAdapter) : BluetoothT
                 _status.value = TransportStatus.Disconnected("Waze Mod đã đóng SPP")
             } catch (error: Throwable) {
                 if (isActive) _status.value = TransportStatus.Disconnected(error.message)
+            } finally {
+                runCatching { active.close() }
             }
         }
     }

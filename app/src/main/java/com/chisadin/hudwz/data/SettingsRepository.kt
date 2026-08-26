@@ -20,13 +20,14 @@ class SettingsRepository(private val context: Context) {
         .catch { error -> if (error is IOException) emit(androidx.datastore.preferences.core.emptyPreferences()) else throw error }
         .map { values ->
             HudSettings(
+                isReceiverMode = values[Keys.isReceiverMode] ?: true,
                 preferredTransport = values[Keys.transport].enumOr(TransportType.AUTO),
                 autoReconnect = values[Keys.autoReconnect] ?: true,
                 preferredDeviceAddress = values[Keys.deviceAddress],
                 preferredDeviceName = values[Keys.deviceName],
                 connectionTimeoutSeconds = (values[Keys.timeout] ?: 15).coerceIn(5, 60),
                 mirrorMode = values[Keys.mirror] ?: false,
-                orientation = values[Keys.orientation].enumOr(HudOrientation.LANDSCAPE),
+                orientation = values[Keys.orientation].enumOr(HudOrientation.SENSOR),
                 brightness = (values[Keys.brightness] ?: 1f).coerceIn(.1f, 1f),
                 keepScreenAwake = values[Keys.keepAwake] ?: true,
                 immersiveMode = values[Keys.immersive] ?: true,
@@ -42,13 +43,14 @@ class SettingsRepository(private val context: Context) {
     suspend fun update(transform: (HudSettings) -> HudSettings) {
         context.hudDataStore.edit { values ->
             val current = HudSettings(
+                isReceiverMode = values[Keys.isReceiverMode] ?: true,
                 preferredTransport = values[Keys.transport].enumOr(TransportType.AUTO),
                 autoReconnect = values[Keys.autoReconnect] ?: true,
                 preferredDeviceAddress = values[Keys.deviceAddress],
                 preferredDeviceName = values[Keys.deviceName],
                 connectionTimeoutSeconds = values[Keys.timeout] ?: 15,
                 mirrorMode = values[Keys.mirror] ?: false,
-                orientation = values[Keys.orientation].enumOr(HudOrientation.LANDSCAPE),
+                orientation = values[Keys.orientation].enumOr(HudOrientation.SENSOR),
                 brightness = values[Keys.brightness] ?: 1f,
                 keepScreenAwake = values[Keys.keepAwake] ?: true,
                 immersiveMode = values[Keys.immersive] ?: true,
@@ -60,6 +62,7 @@ class SettingsRepository(private val context: Context) {
                 protocolLogs = values[Keys.protocolLogs] ?: false,
             )
             val next = transform(current)
+            values[Keys.isReceiverMode] = next.isReceiverMode
             values[Keys.transport] = next.preferredTransport.name
             values[Keys.autoReconnect] = next.autoReconnect
             next.preferredDeviceAddress?.let { values[Keys.deviceAddress] = it }
@@ -85,6 +88,7 @@ class SettingsRepository(private val context: Context) {
         this?.let { value -> enumValues<T>().firstOrNull { it.name == value } } ?: default
 
     private object Keys {
+        val isReceiverMode = booleanPreferencesKey("is_receiver_mode")
         val transport = stringPreferencesKey("transport")
         val autoReconnect = booleanPreferencesKey("auto_reconnect")
         val deviceAddress = stringPreferencesKey("device_address")
