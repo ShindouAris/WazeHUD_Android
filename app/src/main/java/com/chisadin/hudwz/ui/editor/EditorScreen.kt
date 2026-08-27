@@ -10,7 +10,6 @@ import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -39,7 +38,6 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.Redo
 import androidx.compose.material.icons.automirrored.rounded.Undo
-import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AlignHorizontalCenter
 import androidx.compose.material.icons.rounded.AlignVerticalCenter
 import androidx.compose.material.icons.rounded.Close
@@ -52,7 +50,6 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
-import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.StayCurrentLandscape
 import androidx.compose.material.icons.rounded.StayCurrentPortrait
@@ -123,7 +120,6 @@ import com.chisadin.hudwz.ui.hud.PreviewHudState
 import com.chisadin.hudwz.ui.theme.HudBlack
 import com.chisadin.hudwz.ui.theme.HudCyan
 import com.chisadin.hudwz.ui.theme.HudOutline
-import com.chisadin.hudwz.ui.theme.HudSurface
 import com.chisadin.hudwz.ui.theme.HudSurfaceHigh
 import kotlin.math.roundToInt
 
@@ -937,20 +933,24 @@ private fun InspectorPanel(
                     item {
                         EnumChips("Hướng", HudElementOrientation.entries, element.orientation) { nextOrientation ->
                             val updated = if (element.type == HudWidgetType.ALERTS) {
-                                if (nextOrientation == HudElementOrientation.HORIZONTAL && element.widthDp < element.heightDp) {
-                                    element.copy(
-                                        orientation = nextOrientation,
-                                        widthDp = maxOf(element.widthDp, element.heightDp, 240f),
-                                        heightDp = minOf(element.widthDp, element.heightDp).coerceIn(40f, 90f),
-                                    )
-                                } else if (nextOrientation == HudElementOrientation.VERTICAL && element.widthDp > element.heightDp) {
-                                    element.copy(
-                                        orientation = nextOrientation,
-                                        widthDp = minOf(element.widthDp, element.heightDp).coerceIn(50f, 90f),
-                                        heightDp = maxOf(element.widthDp, element.heightDp, 180f),
-                                    )
-                                } else {
-                                    element.copy(orientation = nextOrientation)
+                                when (nextOrientation) {
+                                    HudElementOrientation.HORIZONTAL if element.widthDp < element.heightDp -> {
+                                        element.copy(
+                                            orientation = nextOrientation,
+                                            widthDp = maxOf(element.widthDp, element.heightDp, 240f),
+                                            heightDp = minOf(element.widthDp, element.heightDp).coerceIn(40f, 90f),
+                                        )
+                                    }
+                                    HudElementOrientation.VERTICAL if element.widthDp > element.heightDp -> {
+                                        element.copy(
+                                            orientation = nextOrientation,
+                                            widthDp = minOf(element.widthDp, element.heightDp).coerceIn(50f, 90f),
+                                            heightDp = maxOf(element.widthDp, element.heightDp, 180f),
+                                        )
+                                    }
+                                    else -> {
+                                        element.copy(orientation = nextOrientation)
+                                    }
                                 }
                             } else {
                                 element.copy(orientation = nextOrientation)
@@ -1200,6 +1200,7 @@ private data class LibraryDrag(val type: HudWidgetType, val position: Offset)
 private fun widgetLabel(type: HudWidgetType): String = when (type) {
     HudWidgetType.SPEED -> "Tốc độ hiện tại"
     HudWidgetType.SPEED_NUMBER -> "Số tốc độ"
+    HudWidgetType.SPEED_NUMBER_ONLY -> "Số tốc độ rút gọn"
     HudWidgetType.SPEED_LIMIT -> "Giới hạn tốc độ"
     HudWidgetType.SPEED_LIMIT_BAR -> "Thanh tốc độ → giới hạn"
     HudWidgetType.TURN -> "Hướng rẽ tiếp theo"
@@ -1223,7 +1224,7 @@ private fun widgetLabel(type: HudWidgetType): String = when (type) {
 }
 
 private fun widgetHint(type: HudWidgetType): String = when (type) {
-    HudWidgetType.SPEED, HudWidgetType.SPEED_NUMBER,
+    HudWidgetType.SPEED, HudWidgetType.SPEED_NUMBER, HudWidgetType.SPEED_NUMBER_ONLY,
     HudWidgetType.SPEED_LIMIT, HudWidgetType.SPEED_LIMIT_BAR -> "Phương tiện"
     HudWidgetType.TURN, HudWidgetType.NEXT_TURN, HudWidgetType.DISTANCE, HudWidgetType.LANES, HudWidgetType.COMPASS -> "Điều hướng"
     HudWidgetType.STREET, HudWidgetType.NEXT_STREET, HudWidgetType.ETA, HudWidgetType.REMAINING, HudWidgetType.TRIP_PROGRESS -> "Lộ trình"

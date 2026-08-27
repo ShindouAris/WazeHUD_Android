@@ -71,7 +71,7 @@ data class HudState(
 
 @Serializable
 enum class HudWidgetType {
-    SPEED, SPEED_NUMBER, SPEED_LIMIT, SPEED_LIMIT_BAR,
+    SPEED, SPEED_NUMBER, SPEED_NUMBER_ONLY, SPEED_LIMIT, SPEED_LIMIT_BAR,
     TURN, NEXT_TURN, DISTANCE, STREET, NEXT_STREET,
     ETA, REMAINING, GPS, CONNECTION, ALERTS, LANES, TRAFFIC_DELAY,
     CUSTOM_TEXT, CUSTOM_IMAGE, PHONE_BATTERY,
@@ -154,6 +154,7 @@ fun defaultHudElement(
     return when (type) {
         HudWidgetType.SPEED -> base.copy(widthDp = 130f, heightDp = 130f, fontSizeSp = 44f)
         HudWidgetType.SPEED_NUMBER -> base.copy(widthDp = 130f, heightDp = 90f, fontSizeSp = 72f)
+        HudWidgetType.SPEED_NUMBER_ONLY -> base.copy(widthDp = 130f, heightDp = 60f, fontSizeSp = 72f)
         HudWidgetType.SPEED_LIMIT -> base.copy(widthDp = 120f, heightDp = 120f, fontSizeSp = 46f, iconSizeDp = 108f)
         HudWidgetType.SPEED_LIMIT_BAR -> base.copy(widthDp = 220f, heightDp = 24f, fontSizeSp = 12f)
         HudWidgetType.TURN -> base.copy(widthDp = 120f, heightDp = 120f, iconSizeDp = 108f)
@@ -204,7 +205,7 @@ data class HudProfile(
                 val hasPortrait = portraitElements.isNotEmpty() && portraitElements.any { it.visible }
                 when {
                     hasLandscape && hasPortrait -> HudProfileOrientationMode.BOTH
-                    hasPortrait && !hasLandscape -> HudProfileOrientationMode.PORTRAIT_ONLY
+                    hasPortrait -> HudProfileOrientationMode.PORTRAIT_ONLY
                     hasLandscape && !hasPortrait -> HudProfileOrientationMode.LANDSCAPE_ONLY
                     else -> HudProfileOrientationMode.BOTH
                 }
@@ -216,10 +217,10 @@ data class HudProfile(
     val supportsBoth: Boolean get() = effectiveOrientationMode == HudProfileOrientationMode.BOTH
 
     fun elementsFor(isPortrait: Boolean): List<HudElementConfig> = when (effectiveOrientationMode) {
-        HudProfileOrientationMode.PORTRAIT_ONLY -> if (portraitElements.isNotEmpty()) portraitElements else defaultPortraitElementsFor(this)
+        HudProfileOrientationMode.PORTRAIT_ONLY -> portraitElements.ifEmpty { defaultPortraitElementsFor(this) }
         HudProfileOrientationMode.LANDSCAPE_ONLY -> elements
         else -> if (isPortrait) {
-            if (portraitElements.isNotEmpty()) portraitElements else defaultPortraitElementsFor(this)
+            portraitElements.ifEmpty { defaultPortraitElementsFor(this) }
         } else {
             elements
         }
@@ -304,7 +305,7 @@ fun defaultPortraitElementsFor(profile: HudProfile): List<HudElementConfig> = wh
     "large-speed" -> largeSpeedPortraitProfileElements()
     else -> {
         val adapted = autoAdaptToPortrait(profile.elements)
-        if (adapted.isNotEmpty()) adapted else defaultPortraitProfileElements()
+        adapted.ifEmpty { defaultPortraitProfileElements() }
     }
 }
 
@@ -367,7 +368,7 @@ fun migrateHudProfile(profile: HudProfile): HudProfile {
         positioned.copy(layoutVersion = 3, elements = mergedElements)
     }
     if (v3.layoutVersion >= 4) return v3
-    val portrait = if (v3.portraitElements.isNotEmpty()) v3.portraitElements else defaultPortraitElementsFor(v3)
+    val portrait = v3.portraitElements.ifEmpty { defaultPortraitElementsFor(v3) }
     return v3.copy(layoutVersion = 4, portraitElements = portrait)
 }
 

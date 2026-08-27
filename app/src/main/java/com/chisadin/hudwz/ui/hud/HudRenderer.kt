@@ -60,6 +60,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -545,6 +546,7 @@ private fun HudWidget(
         when (config.type) {
             HudWidgetType.SPEED -> SpeedDial(state.speed ?: 0, state.speedLimit, state.overspeed, config, globalFontScale)
             HudWidgetType.SPEED_NUMBER -> SpeedNumber(state.speed ?: 0, state.overspeed, config, globalFontScale, weight)
+            HudWidgetType.SPEED_NUMBER_ONLY -> SpeedNumberOnly(state.speed ?: 0, state.overspeed, config, globalFontScale, weight)
             HudWidgetType.SPEED_LIMIT -> SpeedLimitSign(state.speedLimit, config, globalFontScale)
             HudWidgetType.SPEED_LIMIT_BAR -> SpeedToLimitBar(state.speed ?: 0, state.speedLimit, state.overspeed)
             HudWidgetType.TURN -> ManeuverWidget(state.turn, state.roundaboutExit, config)
@@ -775,7 +777,9 @@ private fun TripProgressWidget(
                                 Icons.Rounded.Navigation,
                                 contentDescription = null,
                                 tint = Color.Black,
-                                modifier = Modifier.size(9.dp),
+                                modifier = Modifier
+                                    .size(9.dp)
+                                    .rotate(90f)
                             )
                         }
                     }
@@ -821,6 +825,33 @@ private fun SpeedNumber(
     }
 }
 
+@Composable
+private fun SpeedNumberOnly(
+    speed: Int,
+    overspeed: Boolean,
+    config: HudElementConfig,
+    fontScale: Float,
+    weight: FontWeight,
+) {
+    val numberFont = rememberHudNumberFont()
+    val textFont = rememberHudTextFont()
+    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        val fitted = min(
+            config.fontSizeSp * fontScale * 1.18f,
+            min(maxWidth.value * .78f, maxHeight.value * .69f),
+        ).coerceAtLeast(7f)
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = speed.coerceAtLeast(0).toString(),
+                color = if (overspeed) HudRed else HudText,
+                fontSize = fitted.sp,
+                fontWeight = weight,
+                fontFamily = numberFont,
+                maxLines = 1,
+            )
+        }
+    }
+}
 @Composable
 private fun SpeedToLimitBar(
     speed: Int,
@@ -1528,6 +1559,7 @@ private fun OverspeedVignette() {
 private fun widgetDescription(type: HudWidgetType, state: HudState): String = when (type) {
     HudWidgetType.SPEED -> "Tốc độ hiện tại ${state.speed ?: 0} ki-lô-mét trên giờ"
     HudWidgetType.SPEED_NUMBER -> "Số tốc độ hiện tại ${state.speed ?: 0}"
+    HudWidgetType.SPEED_NUMBER_ONLY -> "Số tốc độ hiện tại ${state.speed ?: 0}"
     HudWidgetType.SPEED_LIMIT -> "Giới hạn tốc độ ${state.speedLimit ?: "chưa xác định"}"
     HudWidgetType.SPEED_LIMIT_BAR -> "Tốc độ hiện tại ${state.speed ?: 0}, giới hạn ${state.speedLimit ?: "chưa xác định"}"
     HudWidgetType.TURN -> "Hướng rẽ tiếp theo ${state.turn.name}"
@@ -1551,7 +1583,7 @@ private fun widgetDescription(type: HudWidgetType, state: HudState): String = wh
 }
 
 private fun shouldRenderWidget(type: HudWidgetType, state: HudState, config: HudElementConfig): Boolean = when (type) {
-    HudWidgetType.SPEED, HudWidgetType.SPEED_NUMBER,
+    HudWidgetType.SPEED, HudWidgetType.SPEED_NUMBER, HudWidgetType.SPEED_NUMBER_ONLY,
     HudWidgetType.SPEED_LIMIT,
     HudWidgetType.GPS, HudWidgetType.CONNECTION,
     HudWidgetType.CLOCK, HudWidgetType.COMPASS -> true
@@ -1572,7 +1604,7 @@ private fun shouldRenderWidget(type: HudWidgetType, state: HudState, config: Hud
 }
 
 private fun formatDistance(meters: Int?): String = when {
-    meters == null -> "—"
+    meters == null -> "--"
     meters < 1_000 -> "$meters m"
     meters < 10_000 -> "%.1f km".format(meters / 1_000.0)
     else -> "${(meters / 1_000.0).roundToInt()} km"

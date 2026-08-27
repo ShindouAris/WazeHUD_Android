@@ -70,11 +70,11 @@ private fun ComponentActivity.ApplyWindowBehavior(
         if (hudActive) {
             if (settings.keepScreenAwake) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            requestedOrientation = when {
-                activeProfile?.effectiveOrientationMode == HudProfileOrientationMode.PORTRAIT_ONLY -> {
+            requestedOrientation = when (activeProfile?.effectiveOrientationMode) {
+                HudProfileOrientationMode.PORTRAIT_ONLY -> {
                     ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
                 }
-                activeProfile?.effectiveOrientationMode == HudProfileOrientationMode.LANDSCAPE_ONLY -> {
+                HudProfileOrientationMode.LANDSCAPE_ONLY -> {
                     ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                 }
                 else -> when (settings.orientation) {
