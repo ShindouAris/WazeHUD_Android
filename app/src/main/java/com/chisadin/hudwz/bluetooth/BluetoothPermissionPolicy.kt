@@ -30,6 +30,15 @@ object BluetoothPermissionPolicy {
         arrayOf(Manifest.permission.POST_NOTIFICATIONS)
     } else emptyArray()
 
+    /**
+     * Every supported Bluetooth transport needs BLUETOOTH_CONNECT on Android 12+.
+     * It is also a valid runtime prerequisite for a connectedDevice foreground
+     * service on Android 14+, so checking it before service creation prevents a
+     * SecurityException during Service.startForeground().
+     */
+    fun canStartConnectedDeviceService(context: Context): Boolean =
+        has(context, connectionPermissions())
+
     fun has(context: Context, permissions: Array<String>): Boolean = permissions.all {
         ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
     }

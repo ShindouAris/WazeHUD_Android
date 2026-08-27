@@ -64,32 +64,53 @@ class HudBluetoothService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_DISCONNECT -> disconnectByUser()
+        return when (intent?.action) {
+            ACTION_DISCONNECT -> {
+                disconnectByUser()
+                START_NOT_STICKY
+            }
             ACTION_LISTEN -> {
                 val type = intent.getStringExtra(EXTRA_TRANSPORT).toTransport()
-                startListening(type)
+                val actualType = type.takeUnless { it == TransportType.AUTO } ?: TransportType.BLE
+                if (!BluetoothPermissionPolicy.has(this, BluetoothPermissionPolicy.receiverPermissions(actualType))) {
+                    rejectStart(actualType, "Cần cấp quyền Bluetooth trước khi bật bộ nhận")
+                    return START_NOT_STICKY
+                }
+                if (startListening(type)) START_STICKY else START_NOT_STICKY
             }
             ACTION_CONNECT -> {
-                val address = intent.getStringExtra(EXTRA_ADDRESS) ?: return START_STICKY
+                if (!BluetoothPermissionPolicy.has(this, BluetoothPermissionPolicy.connectionPermissions())) {
+                    rejectStart(intent.getStringExtra(EXTRA_TRANSPORT).toTransport(), "Cần cấp quyền Bluetooth trước khi kết nối")
+                    return START_NOT_STICKY
+                }
+                val address = intent.getStringExtra(EXTRA_ADDRESS) ?: return START_NOT_STICKY
                 val device = BluetoothDeviceInfo(
                     address = address,
                     name = intent.getStringExtra(EXTRA_NAME) ?: "Nguồn HUD",
                     transport = intent.getStringExtra(EXTRA_TRANSPORT).toTransport(),
                     bonded = intent.getBooleanExtra(EXTRA_BONDED, false),
                 )
-                startConnection(device, listen = false)
+                if (startConnection(device, listen = false)) START_STICKY else START_NOT_STICKY
             }
             ACTION_RESTORE, null -> {
-                startForeground(NOTIFICATION_ID, notification("Đang khôi phục kết nối HUD"))
+                if (!BluetoothPermissionPolicy.canStartConnectedDeviceService(this)) {
+                    rejectStart(null, "Cần cấp quyền Bluetooth trước khi tự động kết nối lại")
+                    return START_NOT_STICKY
+                }
+                if (!promoteToForeground("Đang khôi phục kết nối HUD")) return START_NOT_STICKY
                 scope.launch { restoreConnectionIfEnabled() }
+                START_STICKY
             }
             else -> {
-                startForeground(NOTIFICATION_ID, notification("Đang khôi phục kết nối HUD"))
+                if (!BluetoothPermissionPolicy.canStartConnectedDeviceService(this)) {
+                    rejectStart(null, "Cần cấp quyền Bluetooth trước khi tự động kết nối lại")
+                    return START_NOT_STICKY
+                }
+                if (!promoteToForeground("Đang khôi phục kết nối HUD")) return START_NOT_STICKY
                 scope.launch { restoreConnectionIfEnabled() }
+                START_STICKY
             }
         }
-        return START_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -118,17 +139,48 @@ class HudBluetoothService : Service() {
         }
     }
 
-    private fun startConnection(device: BluetoothDeviceInfo, listen: Boolean) {
+    private fun startConnection(device: BluetoothDeviceInfo, listen: Boolean): Boolean {
         manuallyStopped = false
         receiverMode = listen
         val status = if (listen) "Đang chờ Waze Mod qua ${device.transport}" else "Đang kết nối tới ${device.name}"
-        startForeground(NOTIFICATION_ID, notification(status))
+        if (!promoteToForeground(status)) return false
         connectionJob?.cancel()
         connectionJob = scope.launch { connectionLoop(device) }
+        return true
     }
 
-    private fun startListening(type: TransportType) {
+    private fun promoteToForeground(text: String): Boolean = runCatching {
+        startForeground(NOTIFICATION_ID, notification(text))
+        true
+    }.getOrElse { error ->
+        repository.setConnection(
+            ConnectionState(
+                phase = ConnectionPhase.ERROR,
+                message = error.message ?: "Không thể khởi động dịch vụ Bluetooth nền",
+            ),
+        )
+        stopSelf()
+        false
+    }
+
+    private fun rejectStart(type: TransportType?, message: String) {
+        repository.setConnection(
+            ConnectionState(
+                phase = ConnectionPhase.ERROR,
+                transport = type,
+                message = message,
+            ),
+        )
+        stopSelf()
+    }
+
+    private fun startListening(type: TransportType): Boolean {
         val actualType = type.takeUnless { it == TransportType.AUTO } ?: TransportType.BLE
+        val started = startConnection(
+            BluetoothDeviceInfo("", "Waze Mod", actualType, bonded = false),
+            listen = true,
+        )
+        if (!started) return false
         scope.launch {
             settingsRepository.update { current ->
                 current.copy(
@@ -139,10 +191,7 @@ class HudBluetoothService : Service() {
                 )
             }
         }
-        startConnection(
-            BluetoothDeviceInfo("", "Waze Mod", actualType, bonded = false),
-            listen = true,
-        )
+        return true
     }
 
     private suspend fun restoreConnectionIfEnabled() {
@@ -395,8 +444,9 @@ class HudBluetoothService : Service() {
         private const val EXTRA_BONDED = "bonded"
 
         fun restore(context: Context) {
+            if (!BluetoothPermissionPolicy.canStartConnectedDeviceService(context)) return
             val intent = Intent(context, HudBluetoothService::class.java).setAction(ACTION_RESTORE)
-            ContextCompat.startForegroundService(context, intent)
+            runCatching { ContextCompat.startForegroundService(context, intent) }
         }
 
         fun connect(context: Context, device: BluetoothDeviceInfo) {
