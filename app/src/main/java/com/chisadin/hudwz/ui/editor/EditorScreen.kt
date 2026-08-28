@@ -46,6 +46,8 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DragIndicator
 import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.FullscreenExit
+import androidx.compose.material.icons.rounded.GridOff
+import androidx.compose.material.icons.rounded.GridOn
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Lock
@@ -168,6 +170,7 @@ fun EditorScreen(
     var inspectorOpen by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(false) }
     var showInactiveItems by remember { mutableStateOf(false) }
+    var snapEnabled by rememberSaveable { mutableStateOf(true) }
     var canvasBounds by remember { mutableStateOf(Rect.Zero) }
     var libraryDrag by remember { mutableStateOf<LibraryDrag?>(null) }
     var zenMode by remember { mutableStateOf(false) }
@@ -389,6 +392,7 @@ fun EditorScreen(
             state = previewState,
             fontScale = fontScale,
             showInactiveItems = showInactiveItems,
+            snapEnabled = snapEnabled,
             selectedId = if (zenMode) null else selectedId,
             modifier = Modifier.fillMaxSize(),
             onCanvasBounds = { canvasBounds = it },
@@ -494,6 +498,17 @@ fun EditorScreen(
                 Modifier.align(Alignment.TopEnd).padding(8.dp).zIndex(10f),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
+                FloatingEditorButton(
+                    if (snapEnabled) "Tự khớp cạnh: Đang bật (Chạm để tắt)" else "Tự khớp cạnh: Đang tắt (Chạm để bật)",
+                    { snapEnabled = !snapEnabled },
+                    active = snapEnabled,
+                ) {
+                    Icon(
+                        if (snapEnabled) Icons.Rounded.GridOn else Icons.Rounded.GridOff,
+                        contentDescription = "Tự khớp cạnh",
+                        tint = if (snapEnabled) HudCyan else Color.Unspecified,
+                    )
+                }
                 FloatingEditorButton("Xem trước toàn màn hình", {
                     zenMode = true
                     libraryOpen = false
@@ -584,12 +599,14 @@ fun EditorScreen(
                 profile = workingProfile,
                 scale = workingProfile.hudScale,
                 showInactiveItems = showInactiveItems,
+                snapEnabled = snapEnabled,
                 modifier = Modifier.align(Alignment.TopEnd).padding(top = 62.dp).width(270.dp).zIndex(5f),
                 onScaleChange = {
                     workingProfile = workingProfile.copy(hudScale = it)
                     onScaleChange(it)
                 },
                 onShowInactiveChange = { showInactiveItems = it },
+                onSnapEnabledChange = { snapEnabled = it },
                 onOrientationModeChange = { mode ->
                     workingProfile = workingProfile.copy(orientationMode = mode)
                     if (mode == HudProfileOrientationMode.PORTRAIT_ONLY) isPortraitMode = true
@@ -654,6 +671,7 @@ private fun CanvasWorkspace(
     fontScale: Float,
     showInactiveItems: Boolean,
     selectedId: String?,
+    snapEnabled: Boolean = true,
     modifier: Modifier,
     onCanvasBounds: (Rect) -> Unit,
     onSelect: (String) -> Unit,
@@ -684,6 +702,7 @@ private fun CanvasWorkspace(
                 editing = true,
                 showInactiveInEditor = showInactiveItems,
                 forcePortrait = isPortrait,
+                snapEnabled = snapEnabled,
                 selectedId = selectedId,
                 onSelect = onSelect,
                 onDoubleTap = onDoubleTap,
@@ -975,9 +994,11 @@ private fun EditorSettingsPanel(
     profile: HudProfile,
     scale: Float,
     showInactiveItems: Boolean,
+    snapEnabled: Boolean,
     modifier: Modifier,
     onScaleChange: (Float) -> Unit,
     onShowInactiveChange: (Boolean) -> Unit,
+    onSnapEnabledChange: (Boolean) -> Unit,
     onOrientationModeChange: (HudProfileOrientationMode) -> Unit,
     onClose: () -> Unit,
 ) {
@@ -1040,6 +1061,14 @@ private fun EditorSettingsPanel(
                         label = { Text("${(preset * 100).roundToInt()}%", fontSize = 10.sp) },
                     )
                 }
+            }
+            HorizontalDivider(color = HudOutline)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Tự khớp cạnh & canvas", fontSize = 12.sp)
+                    Text("Bắt dính cạnh/tâm giữa các component và canvas khi kéo", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(checked = snapEnabled, onCheckedChange = onSnapEnabledChange)
             }
             HorizontalDivider(color = HudOutline)
             Row(verticalAlignment = Alignment.CenterVertically) {

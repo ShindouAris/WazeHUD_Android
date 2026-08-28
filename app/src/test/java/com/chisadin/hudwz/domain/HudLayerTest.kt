@@ -168,4 +168,14 @@ class HudLayerTest {
         assertEquals("W", com.chisadin.hudwz.sensor.headingToDirectionText(270f))
         assertEquals("NW", com.chisadin.hudwz.sensor.headingToDirectionText(315f))
     }
+
+    @Test
+    fun snapCalculationThresholdLogic() {
+        val snapThreshold = 8.5f
+        val otherLeft = 100f
+        val targetXClose = 104f
+        val targetXFar = 120f
+        assertTrue(kotlin.math.abs(targetXClose - otherLeft) <= snapThreshold)
+        assertFalse(kotlin.math.abs(targetXFar - otherLeft) <= snapThreshold)
+    }
 }

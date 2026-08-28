@@ -138,6 +138,7 @@ fun HudRenderer(
     selectedId: String? = null,
     showInactiveInEditor: Boolean = false,
     forcePortrait: Boolean? = null,
+    snapEnabled: Boolean = true,
     onSelect: (String) -> Unit = {},
     onDoubleTap: (String) -> Unit = {},
     onDragStart: (() -> Unit)? = null,
@@ -180,7 +181,7 @@ fun HudRenderer(
                         onClick = { onSelect(element.id) },
                         onDoubleClick = { onDoubleTap(element.id) },
                     )
-                    .pointerInput(element.id, maxX, maxY, element.locked) {
+                    .pointerInput(element.id, maxX, maxY, element.locked, snapEnabled) {
                         if (element.locked) return@pointerInput
                         var dragX = element.x
                         var dragY = element.y
@@ -204,128 +205,133 @@ fun HudRenderer(
                             var targetX = (dragX + amount.x / density.density).coerceIn(0f, maxX)
                             var targetY = (dragY + amount.y / density.density).coerceIn(0f, maxY)
 
-                            val snapThreshold = 8.5f
-                            val otherElements = activeElements.filter {
-                                it.id != latestElement.id && (it.visible || (editing && showInactiveInEditor))
-                            }
+                            if (snapEnabled) {
+                                val snapThreshold = 8.5f
+                                val otherElements = activeElements.filter {
+                                    it.id != latestElement.id && (it.visible || (editing && showInactiveInEditor))
+                                }
 
-                            // 1. Dính cạnh & tâm theo trục X (Component-to-Component & Canvas)
-                            val snapCandidatesX = mutableListOf<SnapCandidate>()
-                            for (other in otherElements) {
-                                val otherW = other.widthDp * other.scale * profileScale
-                                val otherLeft = other.x
-                                val otherRight = other.x + otherW
-                                val otherCenterX = other.x + otherW / 2f
+                                // 1. Dính cạnh & tâm theo trục X (Component-to-Component & Canvas)
+                                val snapCandidatesX = mutableListOf<SnapCandidate>()
+                                for (other in otherElements) {
+                                    val otherW = other.widthDp * other.scale * profileScale
+                                    val otherLeft = other.x
+                                    val otherRight = other.x + otherW
+                                    val otherCenterX = other.x + otherW / 2f
 
-                                // Cạnh trái trùng cạnh trái
-                                val dLeftLeft = kotlin.math.abs(targetX - otherLeft)
-                                if (dLeftLeft <= snapThreshold) snapCandidatesX.add(SnapCandidate(otherLeft, otherLeft, dLeftLeft))
+                                    // Cạnh trái trùng cạnh trái
+                                    val dLeftLeft = kotlin.math.abs(targetX - otherLeft)
+                                    if (dLeftLeft <= snapThreshold) snapCandidatesX.add(SnapCandidate(otherLeft, otherLeft, dLeftLeft))
 
-                                // Cạnh phải trùng cạnh phải
-                                val dRightRight = kotlin.math.abs((targetX + widthDp) - otherRight)
-                                if (dRightRight <= snapThreshold) snapCandidatesX.add(SnapCandidate(otherRight - widthDp, otherRight, dRightRight))
+                                    // Cạnh phải trùng cạnh phải
+                                    val dRightRight = kotlin.math.abs((targetX + widthDp) - otherRight)
+                                    if (dRightRight <= snapThreshold) snapCandidatesX.add(SnapCandidate(otherRight - widthDp, otherRight, dRightRight))
 
-                                // Cạnh trái dính cạnh phải component khác (kề nhau)
-                                val dLeftRight = kotlin.math.abs(targetX - otherRight)
-                                if (dLeftRight <= snapThreshold) snapCandidatesX.add(SnapCandidate(otherRight, otherRight, dLeftRight))
+                                    // Cạnh trái dính cạnh phải component khác (kề nhau)
+                                    val dLeftRight = kotlin.math.abs(targetX - otherRight)
+                                    if (dLeftRight <= snapThreshold) snapCandidatesX.add(SnapCandidate(otherRight, otherRight, dLeftRight))
 
-                                // Cạnh phải dính cạnh trái component khác (kề nhau)
-                                val dRightLeft = kotlin.math.abs((targetX + widthDp) - otherLeft)
-                                if (dRightLeft <= snapThreshold) snapCandidatesX.add(SnapCandidate(otherLeft - widthDp, otherLeft, dRightLeft))
+                                    // Cạnh phải dính cạnh trái component khác (kề nhau)
+                                    val dRightLeft = kotlin.math.abs((targetX + widthDp) - otherLeft)
+                                    if (dRightLeft <= snapThreshold) snapCandidatesX.add(SnapCandidate(otherLeft - widthDp, otherLeft, dRightLeft))
 
-                                // Tâm dọc trùng tâm dọc
-                                val dCenterCenter = kotlin.math.abs((targetX + widthDp / 2f) - otherCenterX)
-                                if (dCenterCenter <= snapThreshold) snapCandidatesX.add(SnapCandidate(otherCenterX - widthDp / 2f, otherCenterX, dCenterCenter))
-                            }
+                                    // Tâm dọc trùng tâm dọc
+                                    val dCenterCenter = kotlin.math.abs((targetX + widthDp / 2f) - otherCenterX)
+                                    if (dCenterCenter <= snapThreshold) snapCandidatesX.add(SnapCandidate(otherCenterX - widthDp / 2f, otherCenterX, dCenterCenter))
+                                }
 
-                            val bestX = snapCandidatesX.minByOrNull { it.distance }
-                            if (bestX != null) {
-                                targetX = bestX.target.coerceIn(0f, maxX)
-                                activeSnapX = bestX.guide
-                            } else {
-                                val canvasCenterX = canvasWidthDp / 2f
-                                val elemCenterX = targetX + widthDp / 2f
-                                val dCanvasCenter = kotlin.math.abs(elemCenterX - canvasCenterX)
-                                val dLeftEdge = kotlin.math.abs(targetX - 16f)
-                                val dRightEdge = if (maxX >= 32f) kotlin.math.abs(targetX - (maxX - 16f)) else Float.MAX_VALUE
+                                val bestX = snapCandidatesX.minByOrNull { it.distance }
+                                if (bestX != null) {
+                                    targetX = bestX.target.coerceIn(0f, maxX)
+                                    activeSnapX = bestX.guide
+                                } else {
+                                    val canvasCenterX = canvasWidthDp / 2f
+                                    val elemCenterX = targetX + widthDp / 2f
+                                    val dCanvasCenter = kotlin.math.abs(elemCenterX - canvasCenterX)
+                                    val dLeftEdge = kotlin.math.abs(targetX - 16f)
+                                    val dRightEdge = if (maxX >= 32f) kotlin.math.abs(targetX - (maxX - 16f)) else Float.MAX_VALUE
 
-                                when {
-                                    dCanvasCenter <= snapThreshold -> {
-                                        targetX = (canvasCenterX - widthDp / 2f).coerceIn(0f, maxX)
-                                        activeSnapX = canvasCenterX
-                                    }
-                                    dLeftEdge <= snapThreshold -> {
-                                        targetX = 16f.coerceIn(0f, maxX)
-                                        activeSnapX = 16f
-                                    }
-                                    dRightEdge <= snapThreshold -> {
-                                        targetX = (maxX - 16f).coerceIn(0f, maxX)
-                                        activeSnapX = canvasWidthDp - 16f
-                                    }
-                                    else -> {
-                                        activeSnapX = null
+                                    when {
+                                        dCanvasCenter <= snapThreshold -> {
+                                            targetX = (canvasCenterX - widthDp / 2f).coerceIn(0f, maxX)
+                                            activeSnapX = canvasCenterX
+                                        }
+                                        dLeftEdge <= snapThreshold -> {
+                                            targetX = 16f.coerceIn(0f, maxX)
+                                            activeSnapX = 16f
+                                        }
+                                        dRightEdge <= snapThreshold -> {
+                                            targetX = (maxX - 16f).coerceIn(0f, maxX)
+                                            activeSnapX = canvasWidthDp - 16f
+                                        }
+                                        else -> {
+                                            activeSnapX = null
+                                        }
                                     }
                                 }
-                            }
 
-                            // 2. Dính cạnh & tâm theo trục Y (Component-to-Component & Canvas)
-                            val snapCandidatesY = mutableListOf<SnapCandidate>()
-                            for (other in otherElements) {
-                                val otherSourceH = if (other.type.locksAspectRatio) other.widthDp else other.heightDp
-                                val otherH = otherSourceH * other.scale * profileScale
-                                val otherTop = other.y
-                                val otherBottom = other.y + otherH
-                                val otherCenterY = other.y + otherH / 2f
+                                // 2. Dính cạnh & tâm theo trục Y (Component-to-Component & Canvas)
+                                val snapCandidatesY = mutableListOf<SnapCandidate>()
+                                for (other in otherElements) {
+                                    val otherSourceH = if (other.type.locksAspectRatio) other.widthDp else other.heightDp
+                                    val otherH = otherSourceH * other.scale * profileScale
+                                    val otherTop = other.y
+                                    val otherBottom = other.y + otherH
+                                    val otherCenterY = other.y + otherH / 2f
 
-                                // Mép trên trùng mép trên
-                                val dTopTop = kotlin.math.abs(targetY - otherTop)
-                                if (dTopTop <= snapThreshold) snapCandidatesY.add(SnapCandidate(otherTop, otherTop, dTopTop))
+                                    // Mép trên trùng mép trên
+                                    val dTopTop = kotlin.math.abs(targetY - otherTop)
+                                    if (dTopTop <= snapThreshold) snapCandidatesY.add(SnapCandidate(otherTop, otherTop, dTopTop))
 
-                                // Mép dưới trùng mép dưới
-                                val dBottomBottom = kotlin.math.abs((targetY + heightDp) - otherBottom)
-                                if (dBottomBottom <= snapThreshold) snapCandidatesY.add(SnapCandidate(otherBottom - heightDp, otherBottom, dBottomBottom))
+                                    // Mép dưới trùng mép dưới
+                                    val dBottomBottom = kotlin.math.abs((targetY + heightDp) - otherBottom)
+                                    if (dBottomBottom <= snapThreshold) snapCandidatesY.add(SnapCandidate(otherBottom - heightDp, otherBottom, dBottomBottom))
 
-                                // Mép trên dính mép dưới component khác (xếp chồng)
-                                val dTopBottom = kotlin.math.abs(targetY - otherBottom)
-                                if (dTopBottom <= snapThreshold) snapCandidatesY.add(SnapCandidate(otherBottom, otherBottom, dTopBottom))
+                                    // Mép trên dính mép dưới component khác (xếp chồng)
+                                    val dTopBottom = kotlin.math.abs(targetY - otherBottom)
+                                    if (dTopBottom <= snapThreshold) snapCandidatesY.add(SnapCandidate(otherBottom, otherBottom, dTopBottom))
 
-                                // Mép dưới dính mép trên component khác (xếp chồng)
-                                val dBottomTop = kotlin.math.abs((targetY + heightDp) - otherTop)
-                                if (dBottomTop <= snapThreshold) snapCandidatesY.add(SnapCandidate(otherTop - heightDp, otherTop, dBottomTop))
+                                    // Mép dưới dính mép trên component khác (xếp chồng)
+                                    val dBottomTop = kotlin.math.abs((targetY + heightDp) - otherTop)
+                                    if (dBottomTop <= snapThreshold) snapCandidatesY.add(SnapCandidate(otherTop - heightDp, otherTop, dBottomTop))
 
-                                // Tâm ngang trùng tâm ngang
-                                val dCenterCenter = kotlin.math.abs((targetY + heightDp / 2f) - otherCenterY)
-                                if (dCenterCenter <= snapThreshold) snapCandidatesY.add(SnapCandidate(otherCenterY - heightDp / 2f, otherCenterY, dCenterCenter))
-                            }
+                                    // Tâm ngang trùng tâm ngang
+                                    val dCenterCenter = kotlin.math.abs((targetY + heightDp / 2f) - otherCenterY)
+                                    if (dCenterCenter <= snapThreshold) snapCandidatesY.add(SnapCandidate(otherCenterY - heightDp / 2f, otherCenterY, dCenterCenter))
+                                }
 
-                            val bestY = snapCandidatesY.minByOrNull { it.distance }
-                            if (bestY != null) {
-                                targetY = bestY.target.coerceIn(0f, maxY)
-                                activeSnapY = bestY.guide
-                            } else {
-                                val canvasCenterY = canvasHeightDp / 2f
-                                val elemCenterY = targetY + heightDp / 2f
-                                val dCanvasCenter = kotlin.math.abs(elemCenterY - canvasCenterY)
-                                val dTopEdge = kotlin.math.abs(targetY - 16f)
-                                val dBottomEdge = if (maxY >= 32f) kotlin.math.abs(targetY - (maxY - 16f)) else Float.MAX_VALUE
+                                val bestY = snapCandidatesY.minByOrNull { it.distance }
+                                if (bestY != null) {
+                                    targetY = bestY.target.coerceIn(0f, maxY)
+                                    activeSnapY = bestY.guide
+                                } else {
+                                    val canvasCenterY = canvasHeightDp / 2f
+                                    val elemCenterY = targetY + heightDp / 2f
+                                    val dCanvasCenter = kotlin.math.abs(elemCenterY - canvasCenterY)
+                                    val dTopEdge = kotlin.math.abs(targetY - 16f)
+                                    val dBottomEdge = if (maxY >= 32f) kotlin.math.abs(targetY - (maxY - 16f)) else Float.MAX_VALUE
 
-                                when {
-                                    dCanvasCenter <= snapThreshold -> {
-                                        targetY = (canvasCenterY - heightDp / 2f).coerceIn(0f, maxY)
-                                        activeSnapY = canvasCenterY
-                                    }
-                                    dTopEdge <= snapThreshold -> {
-                                        targetY = 16f.coerceIn(0f, maxY)
-                                        activeSnapY = 16f
-                                    }
-                                    dBottomEdge <= snapThreshold -> {
-                                        targetY = (maxY - 16f).coerceIn(0f, maxY)
-                                        activeSnapY = canvasHeightDp - 16f
-                                    }
-                                    else -> {
-                                        activeSnapY = null
+                                    when {
+                                        dCanvasCenter <= snapThreshold -> {
+                                            targetY = (canvasCenterY - heightDp / 2f).coerceIn(0f, maxY)
+                                            activeSnapY = canvasCenterY
+                                        }
+                                        dTopEdge <= snapThreshold -> {
+                                            targetY = 16f.coerceIn(0f, maxY)
+                                            activeSnapY = 16f
+                                        }
+                                        dBottomEdge <= snapThreshold -> {
+                                            targetY = (maxY - 16f).coerceIn(0f, maxY)
+                                            activeSnapY = canvasHeightDp - 16f
+                                        }
+                                        else -> {
+                                            activeSnapY = null
+                                        }
                                     }
                                 }
+                            } else {
+                                activeSnapX = null
+                                activeSnapY = null
                             }
 
                             dragX = targetX

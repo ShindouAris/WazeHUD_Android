@@ -67,6 +67,10 @@ fun ConnectionScreen(
     var pendingScan by remember { mutableStateOf(false) }
     var pendingConnect by remember { mutableStateOf<BluetoothDeviceInfo?>(null) }
     var pendingListen by remember { mutableStateOf<TransportType?>(null) }
+    var pendingEnableBluetooth by remember { mutableStateOf(false) }
+    val enableBluetooth = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) onRefreshPaired()
+    }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { result ->
@@ -74,13 +78,12 @@ fun ConnectionScreen(
             if (pendingScan) onScan()
             pendingConnect?.let(onConnect)
             pendingListen?.let(onListen)
+            if (pendingEnableBluetooth) enableBluetooth.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
         }
         pendingScan = false
         pendingConnect = null
         pendingListen = null
-    }
-    val enableBluetooth = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) onRefreshPaired()
+        pendingEnableBluetooth = false
     }
 
     fun requestScan() {
@@ -179,7 +182,13 @@ fun ConnectionScreen(
                     Text(if (scanning) " Dừng" else " Quét BLE")
                 }
                 OutlinedButton(onClick = {
-                    enableBluetooth.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+                    val connectPerms = BluetoothPermissionPolicy.connectionPermissions()
+                    if (BluetoothPermissionPolicy.has(context, connectPerms)) {
+                        enableBluetooth.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+                    } else {
+                        pendingEnableBluetooth = true
+                        permissionLauncher.launch(connectPerms)
+                    }
                 }) { Icon(Icons.Rounded.Bluetooth, null); Text(" Bật Bluetooth") }
                 if (connection.phase == ConnectionPhase.CONNECTED || connection.phase == ConnectionPhase.CONNECTING || connection.phase == ConnectionPhase.RECONNECTING) {
                     OutlinedButton(onClick = onDisconnect) { Text("Ngắt kết nối") }
@@ -192,7 +201,7 @@ fun ConnectionScreen(
         item {
             Text("Kết nối ở chế độ máy khách (nâng cao)", style = MaterialTheme.typography.titleLarge)
         }
-        items(devices, key = { "${it.transport}:${it.address}" }) { device ->
+        items(devices.distinctBy { "${it.transport}:${it.address}" }, key = { "${it.transport}:${it.address}" }) { device ->
             DeviceCard(device, connected = connection.device?.address == device.address, onConnect = { requestConnect(device) })
         }
         if (devices.isEmpty()) {
