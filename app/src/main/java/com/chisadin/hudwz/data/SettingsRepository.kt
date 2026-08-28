@@ -37,6 +37,8 @@ class SettingsRepository(private val context: Context) {
                 showRawPackets = values[Keys.rawPackets] ?: false,
                 bluetoothLogs = values[Keys.bluetoothLogs] ?: false,
                 protocolLogs = values[Keys.protocolLogs] ?: false,
+                wsPort = (values[Keys.wsPort] ?: 8765).coerceIn(1024, 65535),
+                wsPath = values[Keys.wsPath] ?: "/hlp",
             )
         }
 
@@ -60,6 +62,8 @@ class SettingsRepository(private val context: Context) {
                 showRawPackets = values[Keys.rawPackets] ?: false,
                 bluetoothLogs = values[Keys.bluetoothLogs] ?: false,
                 protocolLogs = values[Keys.protocolLogs] ?: false,
+                wsPort = values[Keys.wsPort] ?: 8765,
+                wsPath = values[Keys.wsPath] ?: "/hlp",
             )
             val next = transform(current)
             values[Keys.isReceiverMode] = next.isReceiverMode
@@ -81,6 +85,8 @@ class SettingsRepository(private val context: Context) {
             values[Keys.rawPackets] = next.showRawPackets
             values[Keys.bluetoothLogs] = next.bluetoothLogs
             values[Keys.protocolLogs] = next.protocolLogs
+            values[Keys.wsPort] = next.wsPort.coerceIn(1024, 65535)
+            values[Keys.wsPath] = next.wsPath.ifBlank { "/hlp" }
         }
     }
 
@@ -105,5 +111,7 @@ class SettingsRepository(private val context: Context) {
         val rawPackets = booleanPreferencesKey("raw_packets")
         val bluetoothLogs = booleanPreferencesKey("bluetooth_logs")
         val protocolLogs = booleanPreferencesKey("protocol_logs")
+        val wsPort = intPreferencesKey("ws_port")
+        val wsPath = stringPreferencesKey("ws_path")
     }
 }

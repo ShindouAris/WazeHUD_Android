@@ -98,6 +98,7 @@ fun HudApp(
                     onStopScan = viewModel::stopScan,
                     onConnect = viewModel::connect,
                     onListen = viewModel::listen,
+                    onListenWifi = viewModel::listenWifi,
                     onDisconnect = viewModel::disconnect,
                     onForget = viewModel::forgetSavedDevice,
                     onOpenHud = { navController.navigate("hud") },

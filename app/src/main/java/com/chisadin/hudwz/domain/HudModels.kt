@@ -3,7 +3,7 @@ package com.chisadin.hudwz.domain
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class TransportType { AUTO, BLE, CLASSIC }
+enum class TransportType { AUTO, BLE, CLASSIC, WIFI_WEBSOCKET }
 
 enum class ConnectionPhase {
     IDLE, SCANNING, CONNECTING, CONNECTED, RECONNECTING, DISCONNECTING, ERROR
@@ -397,6 +397,8 @@ data class HudSettings(
     val showRawPackets: Boolean = false,
     val bluetoothLogs: Boolean = false,
     val protocolLogs: Boolean = false,
+    val wsPort: Int = 8765,
+    val wsPath: String = "/hlp",
 )
 
 data class BluetoothDeviceInfo(

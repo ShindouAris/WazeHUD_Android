@@ -120,4 +120,5 @@ private fun transportLabel(type: TransportType): String = when (type) {
     TransportType.AUTO -> "Tự động"
     TransportType.BLE -> "BLE"
     TransportType.CLASSIC -> "Classic SPP"
+    TransportType.WIFI_WEBSOCKET -> "Wi-Fi WebSocket"
 }

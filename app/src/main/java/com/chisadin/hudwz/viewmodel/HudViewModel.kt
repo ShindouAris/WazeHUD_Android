@@ -138,6 +138,19 @@ class HudViewModel(application: Application) : AndroidViewModel(application) {
         HudBluetoothService.listen(getApplication(), type)
     }
 
+    fun listenWifi() {
+        stopScan()
+        updateSettings {
+            it.copy(
+                isReceiverMode = true,
+                preferredDeviceAddress = null,
+                preferredDeviceName = null,
+                preferredTransport = TransportType.WIFI_WEBSOCKET,
+            )
+        }
+        HudBluetoothService.listenWifi(getApplication())
+    }
+
     fun disconnect() = HudBluetoothService.disconnect(getApplication())
 
     fun forgetSavedDevice() = updateSettings {

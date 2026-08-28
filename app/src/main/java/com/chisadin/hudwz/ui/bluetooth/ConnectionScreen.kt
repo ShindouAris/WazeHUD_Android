@@ -23,6 +23,8 @@ import androidx.compose.material.icons.rounded.BluetoothConnected
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.SignalCellularAlt
+import androidx.compose.material.icons.rounded.Wifi
+import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -42,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.chisadin.hudwz.bluetooth.BluetoothPermissionPolicy
+import com.chisadin.hudwz.bluetooth.LanAddressHelper
 import com.chisadin.hudwz.domain.BluetoothDeviceInfo
 import com.chisadin.hudwz.domain.ConnectionPhase
 import com.chisadin.hudwz.domain.ConnectionState
@@ -59,6 +62,7 @@ fun ConnectionScreen(
     onStopScan: () -> Unit,
     onConnect: (BluetoothDeviceInfo) -> Unit,
     onListen: (TransportType) -> Unit,
+    onListenWifi: () -> Unit,
     onDisconnect: () -> Unit,
     onForget: () -> Unit,
     onOpenHud: () -> Unit,
@@ -172,6 +176,38 @@ fun ConnectionScreen(
             }
         }
         item {
+            val isListeningWifi = (connection.phase == ConnectionPhase.CONNECTING ||
+                connection.phase == ConnectionPhase.CONNECTED ||
+                connection.phase == ConnectionPhase.RECONNECTING) &&
+                connection.transport == TransportType.WIFI_WEBSOCKET && settings.isReceiverMode
+            val lanIp = remember(isListeningWifi) { LanAddressHelper.getLanIp(context) }
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Wi-Fi WebSocket", style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        "Kết nối WazeMod thông qua Wi-Fi",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (lanIp != null) {
+                        val port = settings.wsPort
+                        val path = settings.wsPath.ifBlank { "/hlp" }
+                        Text(
+                            "URL: ws://$lanIp:$port$path \n Hoặc: ws://localhost:$port$path",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    Button(
+                        onClick = { if (isListeningWifi) onDisconnect() else onListenWifi() },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(if (isListeningWifi) Icons.Rounded.Wifi else Icons.Rounded.WifiOff, contentDescription = null)
+                        Text(if (isListeningWifi) " Wi-Fi WebSocket đang chạy (Bấm để dừng)" else " Bật Wi-Fi WebSocket Server")
+                    }
+                }
+            }
+        }
+        item {
             Row(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -267,4 +303,5 @@ private fun transportLabel(type: TransportType): String = when (type) {
     TransportType.AUTO -> "Tự động"
     TransportType.BLE -> "BLE"
     TransportType.CLASSIC -> "Classic SPP"
+    TransportType.WIFI_WEBSOCKET -> "Wi-Fi WebSocket"
 }

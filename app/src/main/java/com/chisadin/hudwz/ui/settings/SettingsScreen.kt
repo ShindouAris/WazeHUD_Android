@@ -114,6 +114,7 @@ private fun enumLabel(value: Enum<*>): String = when (value) {
     TransportType.AUTO -> "Tự động"
     TransportType.BLE -> "BLE"
     TransportType.CLASSIC -> "Classic SPP"
+    TransportType.WIFI_WEBSOCKET -> "Wi-Fi WebSocket"
     HudOrientation.SENSOR -> "Theo cảm biến"
     HudOrientation.LANDSCAPE -> "Ngang"
     HudOrientation.PORTRAIT -> "Dọc"

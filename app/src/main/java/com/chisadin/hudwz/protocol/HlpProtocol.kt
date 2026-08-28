@@ -64,6 +64,7 @@ class HlpProtocol(private val json: Json = Json { ignoreUnknownKeys = true }) {
         val transportName = when (transport) {
             TransportType.BLE -> "ble"
             TransportType.CLASSIC -> "spp"
+            TransportType.WIFI_WEBSOCKET -> "ws"
             TransportType.AUTO -> "auto"
         }
         val objectValue = buildJsonObject {

@@ -23,6 +23,7 @@ import com.chisadin.hudwz.bluetooth.BluetoothTransport
 import com.chisadin.hudwz.bluetooth.ClassicTransport
 import com.chisadin.hudwz.bluetooth.ClassicServerTransport
 import com.chisadin.hudwz.bluetooth.TransportStatus
+import com.chisadin.hudwz.bluetooth.WifiWebSocketTransport
 import com.chisadin.hudwz.domain.BluetoothDeviceInfo
 import com.chisadin.hudwz.domain.ConnectionPhase
 import com.chisadin.hudwz.domain.ConnectionState
@@ -77,6 +78,9 @@ class HudBluetoothService : Service() {
                     return START_NOT_STICKY
                 }
                 if (startListening(type)) START_STICKY else START_NOT_STICKY
+            }
+            ACTION_WIFI_LISTEN -> {
+                if (startWifiListening()) START_STICKY else START_NOT_STICKY
             }
             ACTION_CONNECT -> {
                 if (!BluetoothPermissionPolicy.has(this, BluetoothPermissionPolicy.connectionPermissions())) {
@@ -194,6 +198,25 @@ class HudBluetoothService : Service() {
         return true
     }
 
+    private fun startWifiListening(): Boolean {
+        val started = startConnection(
+            BluetoothDeviceInfo("", "Waze Mod (Wi-Fi)", TransportType.WIFI_WEBSOCKET, bonded = false),
+            listen = true,
+        )
+        if (!started) return false
+        scope.launch {
+            settingsRepository.update { current ->
+                current.copy(
+                    isReceiverMode = true,
+                    preferredTransport = TransportType.WIFI_WEBSOCKET,
+                    preferredDeviceAddress = null,
+                    preferredDeviceName = null,
+                )
+            }
+        }
+        return true
+    }
+
     private suspend fun restoreConnectionIfEnabled() {
         val settings = settingsRepository.settings.first()
         if (!settings.autoReconnect) return stopSelf()
@@ -201,7 +224,11 @@ class HudBluetoothService : Service() {
         val isReceiver = settings.isReceiverMode || address.isNullOrBlank()
         if (isReceiver) {
             val transport = settings.preferredTransport.takeUnless { it == TransportType.AUTO } ?: TransportType.BLE
-            startListening(transport)
+            if (transport == TransportType.WIFI_WEBSOCKET) {
+                startWifiListening()
+            } else {
+                startListening(transport)
+            }
         } else {
             startConnection(
                 BluetoothDeviceInfo(
@@ -223,20 +250,23 @@ class HudBluetoothService : Service() {
             val actualType = device.transport.takeUnless { it == TransportType.AUTO }
                 ?: settings.preferredTransport.takeUnless { it == TransportType.AUTO }
                 ?: TransportType.BLE
-            val requiredPermissions = if (receiverMode) {
-                BluetoothPermissionPolicy.receiverPermissions(actualType)
-            } else BluetoothPermissionPolicy.connectionPermissions()
-            if (!BluetoothPermissionPolicy.has(this, requiredPermissions)) {
-                repository.setConnection(ConnectionState(ConnectionPhase.ERROR, device, actualType, "Cần cấp quyền Bluetooth"))
-                stopForegroundCompat(removeNotification = true)
-                stopSelf()
-                return
-            }
-            if (adapter?.isEnabled != true) {
-                repository.setConnection(ConnectionState(ConnectionPhase.ERROR, device, actualType, "Bluetooth đang tắt"))
-                stopForegroundCompat(removeNotification = true)
-                stopSelf()
-                return
+
+            if (actualType != TransportType.WIFI_WEBSOCKET) {
+                val requiredPermissions = if (receiverMode) {
+                    BluetoothPermissionPolicy.receiverPermissions(actualType)
+                } else BluetoothPermissionPolicy.connectionPermissions()
+                if (!BluetoothPermissionPolicy.has(this, requiredPermissions)) {
+                    repository.setConnection(ConnectionState(ConnectionPhase.ERROR, device, actualType, "Cần cấp quyền Bluetooth"))
+                    stopForegroundCompat(removeNotification = true)
+                    stopSelf()
+                    return
+                }
+                if (adapter?.isEnabled != true) {
+                    repository.setConnection(ConnectionState(ConnectionPhase.ERROR, device, actualType, "Bluetooth đang tắt"))
+                    stopForegroundCompat(removeNotification = true)
+                    stopSelf()
+                    return
+                }
             }
             repository.setConnection(
                 ConnectionState(
@@ -251,7 +281,7 @@ class HudBluetoothService : Service() {
                 if (receiverMode) "Đang chờ Waze Mod qua $actualType"
                 else if (attempt == 0) "Đang kết nối tới ${device.name}" else "Đang kết nối lại tới ${device.name}",
             )
-            val activeTransport = createTransport(actualType, receiverMode)
+            val activeTransport = createTransport(actualType, receiverMode, settings)
             transport = activeTransport
             val sessionStartedAt = SystemClock.elapsedRealtime()
             try {
@@ -350,17 +380,29 @@ class HudBluetoothService : Service() {
         }
     }
 
-    private fun createTransport(type: TransportType, listen: Boolean): BluetoothTransport {
+    private fun createTransport(
+        type: TransportType,
+        listen: Boolean,
+        settings: com.chisadin.hudwz.domain.HudSettings? = null,
+    ): BluetoothTransport {
+        if (type == TransportType.WIFI_WEBSOCKET) {
+            return WifiWebSocketTransport(
+                port = settings?.wsPort ?: 8765,
+                path = settings?.wsPath ?: "/hlp",
+            )
+        }
         val bluetoothAdapter = adapter ?: throw IllegalStateException("Bluetooth không khả dụng")
         if (listen) {
             val bluetoothManager = getSystemService(BluetoothManager::class.java)
             return when (type) {
                 TransportType.CLASSIC -> ClassicServerTransport(bluetoothAdapter)
+                TransportType.WIFI_WEBSOCKET -> WifiWebSocketTransport()
                 TransportType.BLE, TransportType.AUTO -> BleServerTransport(this, bluetoothManager, bluetoothAdapter)
             }
         }
         return when (type) {
             TransportType.CLASSIC -> ClassicTransport(bluetoothAdapter)
+            TransportType.WIFI_WEBSOCKET -> WifiWebSocketTransport()
             TransportType.BLE, TransportType.AUTO -> BleTransport(this, bluetoothAdapter)
         }
     }
@@ -436,6 +478,7 @@ class HudBluetoothService : Service() {
         private const val NOTIFICATION_ID = 41
         private const val ACTION_CONNECT = "com.chisadin.hudwz.CONNECT"
         private const val ACTION_LISTEN = "com.chisadin.hudwz.LISTEN"
+        private const val ACTION_WIFI_LISTEN = "com.chisadin.hudwz.WIFI_LISTEN"
         private const val ACTION_DISCONNECT = "com.chisadin.hudwz.DISCONNECT"
         private const val ACTION_RESTORE = "com.chisadin.hudwz.RESTORE"
         private const val EXTRA_ADDRESS = "address"
@@ -463,6 +506,12 @@ class HudBluetoothService : Service() {
             val intent = Intent(context, HudBluetoothService::class.java)
                 .setAction(ACTION_LISTEN)
                 .putExtra(EXTRA_TRANSPORT, type.name)
+            ContextCompat.startForegroundService(context, intent)
+        }
+
+        fun listenWifi(context: Context) {
+            val intent = Intent(context, HudBluetoothService::class.java)
+                .setAction(ACTION_WIFI_LISTEN)
             ContextCompat.startForegroundService(context, intent)
         }
 
