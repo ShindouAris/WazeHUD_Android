@@ -79,7 +79,7 @@ fun DebugScreen(
         item {
             Text("Hoạt động gần đây", style = MaterialTheme.typography.titleLarge)
         }
-        items(events.takeLast(100).reversed(), key = { "${it.elapsedMs}:${it.message}" }) { event ->
+        items(events.takeLast(100).reversed(), key = { it.id }) { event ->
             Text("${event.category} · ${event.message}", style = MaterialTheme.typography.bodyLarge)
         }
         if (rawPackets.isNotEmpty()) {

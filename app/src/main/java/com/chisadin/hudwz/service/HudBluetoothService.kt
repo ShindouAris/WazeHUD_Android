@@ -22,13 +22,16 @@ import com.chisadin.hudwz.bluetooth.BluetoothPermissionPolicy
 import com.chisadin.hudwz.bluetooth.BluetoothTransport
 import com.chisadin.hudwz.bluetooth.ClassicTransport
 import com.chisadin.hudwz.bluetooth.ClassicServerTransport
+import com.chisadin.hudwz.bluetooth.GattProfile
 import com.chisadin.hudwz.bluetooth.TransportStatus
 import com.chisadin.hudwz.bluetooth.WifiWebSocketTransport
 import com.chisadin.hudwz.domain.BluetoothDeviceInfo
 import com.chisadin.hudwz.domain.ConnectionPhase
 import com.chisadin.hudwz.domain.ConnectionState
+import com.chisadin.hudwz.domain.ReceiverSource
 import com.chisadin.hudwz.domain.TransportType
 import com.chisadin.hudwz.protocol.HlpProtocol
+import com.chisadin.hudwz.protocol.vietmap.VietMapH1ReceiverSession
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -78,6 +81,16 @@ class HudBluetoothService : Service() {
                     return START_NOT_STICKY
                 }
                 if (startListening(type)) START_STICKY else START_NOT_STICKY
+            }
+            ACTION_LISTEN_VIETMAP -> {
+                val actualType = intent.getStringExtra(EXTRA_TRANSPORT).toTransport().let {
+                    if (it == TransportType.AUTO) TransportType.CLASSIC else it
+                }
+                if (!BluetoothPermissionPolicy.has(this, BluetoothPermissionPolicy.receiverPermissions(actualType))) {
+                    rejectStart(actualType, "Cần cấp quyền Bluetooth trước khi bật bộ nhận VietMap")
+                    return START_NOT_STICKY
+                }
+                if (startVietMapListening(actualType)) START_STICKY else START_NOT_STICKY
             }
             ACTION_WIFI_LISTEN -> {
                 if (startWifiListening()) START_STICKY else START_NOT_STICKY
@@ -217,17 +230,44 @@ class HudBluetoothService : Service() {
         return true
     }
 
+    private fun startVietMapListening(transportType: TransportType = TransportType.CLASSIC): Boolean {
+        receiverMode = true
+        val transportLabel = if (transportType == TransportType.CLASSIC) "Bluetooth Classic (SPP)" else "BLE (GATT Service FFF0)"
+        repository.log("VietMap", "Bắt đầu chế độ chờ kết nối từ VietMap Live qua $transportLabel...")
+        val started = startConnection(
+            BluetoothDeviceInfo("", "VietMap Live", transportType, bonded = false),
+            listen = true,
+        )
+        if (!started) return false
+        scope.launch {
+            settingsRepository.update { current ->
+                current.copy(
+                    isReceiverMode = true,
+                    receiverSource = ReceiverSource.VIETMAP_LIVE,
+                    preferredTransport = transportType,
+                    preferredDeviceAddress = null,
+                    preferredDeviceName = null,
+                )
+            }
+        }
+        return true
+    }
+
     private suspend fun restoreConnectionIfEnabled() {
         val settings = settingsRepository.settings.first()
         if (!settings.autoReconnect) return stopSelf()
         val address = settings.preferredDeviceAddress
         val isReceiver = settings.isReceiverMode || address.isNullOrBlank()
         if (isReceiver) {
-            val transport = settings.preferredTransport.takeUnless { it == TransportType.AUTO } ?: TransportType.BLE
-            if (transport == TransportType.WIFI_WEBSOCKET) {
-                startWifiListening()
+            if (settings.receiverSource == ReceiverSource.VIETMAP_LIVE) {
+                startVietMapListening(settings.preferredTransport.takeUnless { it == TransportType.AUTO } ?: TransportType.CLASSIC)
             } else {
-                startListening(transport)
+                val transport = settings.preferredTransport.takeUnless { it == TransportType.AUTO } ?: TransportType.BLE
+                if (transport == TransportType.WIFI_WEBSOCKET) {
+                    startWifiListening()
+                } else {
+                    startListening(transport)
+                }
             }
         } else {
             startConnection(
@@ -268,24 +308,26 @@ class HudBluetoothService : Service() {
                     return
                 }
             }
+            val isVietMap = receiverMode && (settings.receiverSource == ReceiverSource.VIETMAP_LIVE || device.name.contains("VietMap", ignoreCase = true))
+            val targetName = if (isVietMap) "VietMap Live" else if (receiverMode) "Waze Mod" else device.name
             repository.setConnection(
                 ConnectionState(
                     phase = if (attempt == 0) ConnectionPhase.CONNECTING else ConnectionPhase.RECONNECTING,
                     device = device,
                     transport = actualType,
-                    message = if (receiverMode) "Đang chờ Waze Mod" else if (attempt == 0) "Đang kết nối" else "Lần kết nối lại thứ $attempt",
+                    message = if (receiverMode) "Đang chờ $targetName" else if (attempt == 0) "Đang kết nối" else "Lần kết nối lại thứ $attempt",
                     retryAttempt = attempt,
                 ),
             )
             updateNotification(
-                if (receiverMode) "Đang chờ Waze Mod qua $actualType"
+                if (receiverMode) "Đang chờ $targetName qua $actualType"
                 else if (attempt == 0) "Đang kết nối tới ${device.name}" else "Đang kết nối lại tới ${device.name}",
             )
-            val activeTransport = createTransport(actualType, receiverMode, settings)
+            val activeTransport = createTransport(actualType, receiverMode, settings, isVietMap)
             transport = activeTransport
             val sessionStartedAt = SystemClock.elapsedRealtime()
             try {
-                runConnectedSession(activeTransport, device, settings.connectionTimeoutSeconds * 1_000L)
+                runConnectedSession(activeTransport, device, settings.connectionTimeoutSeconds * 1_000L, isVietMap)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
@@ -313,10 +355,25 @@ class HudBluetoothService : Service() {
         activeTransport: BluetoothTransport,
         device: BluetoothDeviceInfo,
         timeoutMillis: Long,
+        isVietMap: Boolean = false,
     ) = coroutineScope {
+        val vietMapSession = if (isVietMap) VietMapH1ReceiverSession(repository) else null
+        vietMapSession?.onConnected()
+
         val incoming = launch {
             activeTransport.incoming.collect { bytes ->
-                repository.accept(bytes).forEach { reply -> activeTransport.write(reply) }
+                if (vietMapSession != null) {
+                    val hex = com.chisadin.hudwz.protocol.vietmap.VietMapH1Decoder.bytesToHex(bytes)
+                    repository.log("VietMap", "RX raw (${bytes.size}B): $hex")
+                    val replies = vietMapSession.feed(bytes)
+                    replies.forEach { reply ->
+                        val replyHex = com.chisadin.hudwz.protocol.vietmap.VietMapH1Decoder.bytesToHex(reply)
+                        repository.log("VietMap", "TX reply (${reply.size}B): $replyHex")
+                        runCatching { activeTransport.write(reply) }
+                    }
+                } else {
+                    repository.accept(bytes).forEach { reply -> activeTransport.write(reply) }
+                }
             }
         }
         val metricUpdates = launch {
@@ -330,11 +387,13 @@ class HudBluetoothService : Service() {
             activeTransport.connect(device, timeoutMillis)
             val connectedStatus = activeTransport.status.value as? TransportStatus.Connected
             connectedStatus?.mtu?.let { mtu -> repository.updateTransportMetrics { it.copy(mtu = mtu) } }
-            repository.setConnection(ConnectionState(ConnectionPhase.CONNECTED, device, activeTransport.type, "Đã kết nối"))
-            updateNotification("Đã kết nối tới ${device.name}")
+            val clientName = if (isVietMap) "VietMap Live" else device.name.ifBlank { "Waze Mod" }
+            repository.setConnection(ConnectionState(ConnectionPhase.CONNECTED, device, activeTransport.type, "Đã kết nối ($clientName)"))
+            updateNotification("Đã kết nối tới $clientName")
             settingsRepository.update { current ->
                 if (receiverMode) current.copy(
                     isReceiverMode = true,
+                    receiverSource = if (isVietMap) ReceiverSource.VIETMAP_LIVE else ReceiverSource.WAZE_MOD,
                     preferredDeviceAddress = null,
                     preferredDeviceName = null,
                     preferredTransport = activeTransport.type,
@@ -345,7 +404,15 @@ class HudBluetoothService : Service() {
                     preferredTransport = activeTransport.type,
                 )
             }
-            activeTransport.write(protocol.deviceDeclaration(activeTransport.type))
+            if (!isVietMap) {
+                activeTransport.write(protocol.deviceDeclaration(activeTransport.type))
+            } else {
+                val greeting = vietMapSession?.initialGreeting() ?: VietMapH1ReceiverSession.buildDeviceInfoFrame()
+                runCatching {
+                    activeTransport.write(greeting)
+                    repository.log("VietMap", "Đã gửi thông tin thiết bị C3 (0x0E) khi bắt đầu phiên")
+                }
+            }
 
             val disconnected = async {
                 when (val terminal = activeTransport.status.filter {
@@ -359,14 +426,16 @@ class HudBluetoothService : Service() {
             val monitor = async {
                 while (true) {
                     delay(5_000)
-                    activeTransport.write(protocol.ping(SystemClock.elapsedRealtime()))
+                    if (!isVietMap) {
+                        activeTransport.write(protocol.ping(SystemClock.elapsedRealtime()))
+                    }
                     val stale = repository.staleForMs()
                     if (stale != null && stale > 3_000) {
                         repository.setConnection(ConnectionState(ConnectionPhase.CONNECTED, device, activeTransport.type, "Tín hiệu đã cũ: ${stale}ms"))
                     }
                     val effectiveTimeout = if (receiverMode) Long.MAX_VALUE else (timeoutMillis * 4).coerceAtLeast(60_000L)
                     if (stale != null && stale > effectiveTimeout) {
-                        throw IllegalStateException("Không có dữ liệu HLP trong ${stale}ms")
+                        throw IllegalStateException("Không có dữ liệu trong ${stale}ms")
                     }
                 }
             }
@@ -375,6 +444,7 @@ class HudBluetoothService : Service() {
                 monitor.onAwait { }
             }
         } finally {
+            vietMapSession?.onDisconnected()
             incoming.cancel()
             metricUpdates.cancel()
         }
@@ -384,6 +454,7 @@ class HudBluetoothService : Service() {
         type: TransportType,
         listen: Boolean,
         settings: com.chisadin.hudwz.domain.HudSettings? = null,
+        isVietMap: Boolean = false,
     ): BluetoothTransport {
         if (type == TransportType.WIFI_WEBSOCKET) {
             return WifiWebSocketTransport(
@@ -394,10 +465,12 @@ class HudBluetoothService : Service() {
         val bluetoothAdapter = adapter ?: throw IllegalStateException("Bluetooth không khả dụng")
         if (listen) {
             val bluetoothManager = getSystemService(BluetoothManager::class.java)
+            val profile = if (isVietMap) GattProfile.VIETMAP_H1 else GattProfile.HLP
+            val sppServiceName = if (isVietMap) "VIETMAP H1" else "HLP SPP"
             return when (type) {
-                TransportType.CLASSIC -> ClassicServerTransport(bluetoothAdapter)
+                TransportType.CLASSIC -> ClassicServerTransport(bluetoothAdapter, sppServiceName, repository::log)
                 TransportType.WIFI_WEBSOCKET -> WifiWebSocketTransport()
-                TransportType.BLE, TransportType.AUTO -> BleServerTransport(this, bluetoothManager, bluetoothAdapter)
+                TransportType.BLE, TransportType.AUTO -> BleServerTransport(this, bluetoothManager, bluetoothAdapter, profile, repository::log)
             }
         }
         return when (type) {
@@ -478,6 +551,7 @@ class HudBluetoothService : Service() {
         private const val NOTIFICATION_ID = 41
         private const val ACTION_CONNECT = "com.chisadin.hudwz.CONNECT"
         private const val ACTION_LISTEN = "com.chisadin.hudwz.LISTEN"
+        private const val ACTION_LISTEN_VIETMAP = "com.chisadin.hudwz.LISTEN_VIETMAP"
         private const val ACTION_WIFI_LISTEN = "com.chisadin.hudwz.WIFI_LISTEN"
         private const val ACTION_DISCONNECT = "com.chisadin.hudwz.DISCONNECT"
         private const val ACTION_RESTORE = "com.chisadin.hudwz.RESTORE"
@@ -508,6 +582,15 @@ class HudBluetoothService : Service() {
             val intent = Intent(context, HudBluetoothService::class.java)
                 .setAction(ACTION_LISTEN)
                 .putExtra(EXTRA_TRANSPORT, type.name)
+            runCatching {
+                ContextCompat.startForegroundService(context, intent)
+            }
+        }
+
+        fun listenVietMap(context: Context, transportType: TransportType = TransportType.CLASSIC) {
+            val intent = Intent(context, HudBluetoothService::class.java)
+                .setAction(ACTION_LISTEN_VIETMAP)
+                .putExtra(EXTRA_TRANSPORT, transportType.name)
             runCatching {
                 ContextCompat.startForegroundService(context, intent)
             }

@@ -37,7 +37,10 @@ class HudRepository(
     val parsedPacket: StateFlow<String> = _parsedPacket.asStateFlow()
 
     private var sessionId: Long? = null
-    private var windowStarted = SystemClock.elapsedRealtime()
+    private fun currentElapsedRealtime(): Long =
+        runCatching { SystemClock.elapsedRealtime() }.getOrDefault(System.currentTimeMillis())
+
+    private var windowStarted = currentElapsedRealtime()
     private var windowPackets = 0L
     @Volatile private var captureRawPackets = false
 
@@ -59,12 +62,17 @@ class HudRepository(
                 _hudState.value = HudState()
             }
         } else {
-            _metrics.update { it.copy(lastPacketElapsedMs = SystemClock.elapsedRealtime()) }
+            _metrics.update { it.copy(lastPacketElapsedMs = currentElapsedRealtime()) }
         }
     }
 
     fun updateTransportMetrics(transform: (TransportMetrics) -> TransportMetrics) {
         _metrics.update(transform)
+    }
+
+    fun updateHudState(transform: (HudState) -> HudState) {
+        _hudState.update(transform)
+        _metrics.update { it.copy(lastPacketElapsedMs = currentElapsedRealtime()) }
     }
 
     fun accept(bytes: ByteArray): List<ByteArray> {
@@ -109,12 +117,12 @@ class HudRepository(
         return replies
     }
 
-    fun staleForMs(now: Long = SystemClock.elapsedRealtime()): Long? =
+    fun staleForMs(now: Long = currentElapsedRealtime()): Long? =
         _metrics.value.lastPacketElapsedMs?.let { now - it }
 
     fun log(category: String, message: String) {
-        Log.d("WazeHudReceiver", "$category: $message")
-        val event = DiagnosticEvent(SystemClock.elapsedRealtime(), category, message)
+        runCatching { Log.d("WazeHudReceiver", "$category: $message") }
+        val event = DiagnosticEvent(currentElapsedRealtime(), category, message)
         _events.update { (it + event).takeLast(250) }
     }
 
@@ -124,7 +132,7 @@ class HudRepository(
     }
 
     private fun recordPacket(line: String) {
-        val now = SystemClock.elapsedRealtime()
+        val now = currentElapsedRealtime()
         windowPackets++
         val elapsed = now - windowStarted
         val rate = if (elapsed >= 1_000) {

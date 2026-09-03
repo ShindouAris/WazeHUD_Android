@@ -37,6 +37,8 @@ class BleServerTransport(
     private val context: Context,
     private val manager: BluetoothManager,
     private val adapter: BluetoothAdapter,
+    val profile: GattProfile = GattProfile.HLP,
+    private val logger: ((category: String, message: String) -> Unit)? = null,
 ) : BluetoothTransport {
     override val type = TransportType.BLE
     private val _status = MutableStateFlow<TransportStatus>(TransportStatus.Idle)
@@ -51,10 +53,19 @@ class BleServerTransport(
     private var ready = CompletableDeferred<Unit>()
     private var notificationResult: CompletableDeferred<Int>? = null
     private var mtu = 23
+    private var originalAdapterName: String? = null
+
+    private fun bytesToHex(bytes: ByteArray): String =
+        com.chisadin.hudwz.protocol.vietmap.VietMapH1Decoder.bytesToHex(bytes)
 
     private val advertiseCallback = object : AdvertiseCallback() {
+        override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
+            logger?.invoke("BLE-Server", "Đang phát sóng BLE thành công! Tên: ${adapter.name}")
+        }
+
         override fun onStartFailure(errorCode: Int) {
             if (errorCode != AdvertiseCallback.ADVERTISE_FAILED_ALREADY_STARTED) {
+                logger?.invoke("BLE-Server", "Phát sóng BLE thất bại: mã lỗi $errorCode")
                 fail("Quảng bá BLE thất bại: $errorCode")
             }
         }
@@ -62,21 +73,31 @@ class BleServerTransport(
 
     private val callback = object : BluetoothGattServerCallback() {
         override fun onServiceAdded(status: Int, service: BluetoothGattService) {
-            if (status != BluetoothGatt.GATT_SUCCESS) return fail("Không thể công bố dịch vụ HLP: $status")
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                logger?.invoke("BLE-Server", "Lỗi thêm dịch vụ GATT: $status")
+                return fail("Không thể công bố dịch vụ: $status")
+            }
+            logger?.invoke("BLE-Server", "Đã thêm dịch vụ GATT ${service.uuid}")
             startAdvertising()
         }
 
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
+                    remote = device
+                    logger?.invoke("BLE-Server", "Thiết bị đã kết nối tầng Bluetooth: ${device.address} (${device.name ?: "Unknown"})")
                     if (status != BluetoothGatt.GATT_SUCCESS) {
+                        logger?.invoke("BLE-Server", "Lỗi kết nối GATT status: $status")
                         fail("Lỗi kết nối thiết bị ngoại vi BLE: $status")
                     }
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
-                    if (remote?.address == device.address || remote == null) {
+                    logger?.invoke("BLE-Server", "Thiết bị đã ngắt kết nối: ${device.address}")
+                    if (remote?.address == device.address) {
                         remote = null
-                        _status.value = TransportStatus.Disconnected("Waze Mod đã ngắt kết nối")
+                        if (_status.value is TransportStatus.Connected) {
+                            _status.value = TransportStatus.Disconnected("Thiết bị ngoại vi đã ngắt kết nối")
+                        }
                     }
                     runCatching { server?.cancelConnection(device) }
                     startAdvertising()
@@ -86,6 +107,7 @@ class BleServerTransport(
 
         override fun onMtuChanged(device: BluetoothDevice, value: Int) {
             mtu = value.coerceAtLeast(23)
+            logger?.invoke("BLE-Server", "MTU đã đổi thành $mtu byte cho ${device.address}")
             if (_status.value is TransportStatus.Connected) _status.value = TransportStatus.Connected(mtu)
         }
 
@@ -98,9 +120,10 @@ class BleServerTransport(
             offset: Int,
             value: ByteArray,
         ) {
-            val enabled = descriptor.uuid == BleTransport.CCCD_UUID &&
+            val enabled = descriptor.uuid == profile.cccdUuid &&
                 (value.contentEquals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) ||
                     value.contentEquals(BluetoothGattDescriptor.ENABLE_INDICATION_VALUE))
+            logger?.invoke("BLE-Server", "Client ghi CCCD ${descriptor.uuid}: enabled=$enabled từ ${device.address}")
             if (responseNeeded) {
                 server?.sendResponse(
                     device,
@@ -117,6 +140,26 @@ class BleServerTransport(
             }
         }
 
+        override fun onCharacteristicReadRequest(
+            device: BluetoothDevice,
+            requestId: Int,
+            offset: Int,
+            characteristic: BluetoothGattCharacteristic,
+        ) {
+            remote = device
+            logger?.invoke("BLE-Server", "Client yêu cầu đọc ${characteristic.uuid} từ ${device.address}")
+            if (characteristic.uuid == profile.notifyUuid && profile == GattProfile.VIETMAP_H1) {
+                val value = com.chisadin.hudwz.protocol.vietmap.VietMapH1ReceiverSession.buildDeviceInfoFrame()
+                val chunk = if (offset < value.size) value.copyOfRange(offset, value.size) else byteArrayOf()
+                server?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, chunk)
+            } else {
+                @Suppress("DEPRECATION")
+                val curVal = characteristic.value ?: byteArrayOf()
+                val chunk = if (offset < curVal.size) curVal.copyOfRange(offset, curVal.size) else byteArrayOf()
+                server?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, chunk)
+            }
+        }
+
         override fun onCharacteristicWriteRequest(
             device: BluetoothDevice,
             requestId: Int,
@@ -126,7 +169,10 @@ class BleServerTransport(
             offset: Int,
             value: ByteArray,
         ) {
-            val accepted = characteristic.uuid == BleTransport.TX_UUID && !preparedWrite && offset == 0
+            remote = device
+            val accepted = characteristic.uuid == profile.writeUuid && !preparedWrite && offset == 0
+            val hex = bytesToHex(value)
+            logger?.invoke("BLE-Server", "Client ghi ${characteristic.uuid} (${value.size}B): $hex")
             if (accepted) _incoming.tryEmit(value.copyOf())
             if (responseNeeded) {
                 server?.sendResponse(
@@ -154,20 +200,25 @@ class BleServerTransport(
         val activeServer = manager.openGattServer(context, callback)
             ?: throw IllegalStateException("Không thể mở máy chủ BLE GATT")
         server = activeServer
-        val service = BluetoothGattService(BleTransport.SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY)
+        val service = BluetoothGattService(profile.serviceUuid, BluetoothGattService.SERVICE_TYPE_PRIMARY)
         val tx = BluetoothGattCharacteristic(
-            BleTransport.TX_UUID,
+            profile.writeUuid,
             BluetoothGattCharacteristic.PROPERTY_WRITE or BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE,
             BluetoothGattCharacteristic.PERMISSION_WRITE,
         )
+        val rxProperties = if (profile == GattProfile.VIETMAP_H1) {
+            BluetoothGattCharacteristic.PROPERTY_NOTIFY or BluetoothGattCharacteristic.PROPERTY_READ
+        } else {
+            BluetoothGattCharacteristic.PROPERTY_NOTIFY
+        }
         rx = BluetoothGattCharacteristic(
-            BleTransport.RX_UUID,
-            BluetoothGattCharacteristic.PROPERTY_NOTIFY,
+            profile.notifyUuid,
+            rxProperties,
             BluetoothGattCharacteristic.PERMISSION_READ,
         ).also { characteristic ->
             characteristic.addDescriptor(
                 BluetoothGattDescriptor(
-                    BleTransport.CCCD_UUID,
+                    profile.cccdUuid,
                     BluetoothGattDescriptor.PERMISSION_READ or BluetoothGattDescriptor.PERMISSION_WRITE,
                 ),
             )
@@ -176,10 +227,17 @@ class BleServerTransport(
         service.addCharacteristic(rx)
         if (!activeServer.addService(service)) {
             disconnect()
-            throw IllegalStateException("Không thể thêm dịch vụ HLP GATT")
+            throw IllegalStateException("Không thể thêm dịch vụ GATT: ${profile.id}")
         }
+        if (profile == GattProfile.VIETMAP_H1) {
+            originalAdapterName = adapter.name
+            runCatching { adapter.name = profile.advertisedName }
+            logger?.invoke("BLE-Server", "Đổi tên Bluetooth sang '${profile.advertisedName}' (gốc: '$originalAdapterName')")
+        }
+        logger?.invoke("BLE-Server", "Máy chủ GATT đã mở, đang chờ client kết nối...")
         try {
             ready.await()
+            logger?.invoke("BLE-Server", "Client đã bật CCCD, phiên BLE sẵn sàng trao đổi dữ liệu!")
         } catch (error: Throwable) {
             disconnect()
             throw error
@@ -187,11 +245,13 @@ class BleServerTransport(
     }
 
     override suspend fun write(bytes: ByteArray) = writeMutex.withLock {
-        val activeServer = server ?: throw IllegalStateException("Bộ nhận BLE chưa chạy")
-        val activeDevice = remote ?: throw IllegalStateException("Chưa có máy khách Waze Mod kết nối")
-        val characteristic = rx ?: throw IllegalStateException("HLP RX không khả dụng")
+        val activeServer = server ?: return@withLock
+        val activeDevice = remote ?: return@withLock
+        val characteristic = rx ?: return@withLock
         val chunkSize = (mtu - 3).coerceAtLeast(20)
         var offset = 0
+        val fullHex = bytesToHex(bytes)
+        logger?.invoke("BLE-Server", "TX notify ${characteristic.uuid} (${bytes.size}B): $fullHex")
         while (offset < bytes.size) {
             val chunk = bytes.copyOfRange(offset, min(bytes.size, offset + chunkSize))
             val result = CompletableDeferred<Int>()
@@ -204,9 +264,11 @@ class BleServerTransport(
                 @Suppress("DEPRECATION")
                 activeServer.notifyCharacteristicChanged(activeDevice, characteristic, false)
             }
-            if (!started) throw IllegalStateException("Không thể bắt đầu thông báo BLE")
-            val resultStatus = withTimeout(3_000) { result.await() }
-            if (resultStatus != BluetoothGatt.GATT_SUCCESS) throw IllegalStateException("Thông báo BLE thất bại: $resultStatus")
+            if (!started) {
+                logger?.invoke("BLE-Server", "Lỗi: Không thể gửi chunk notify ${chunk.size}B")
+                break
+            }
+            runCatching { withTimeout(2_500) { result.await() } }
             offset += chunk.size
         }
         notificationResult = null
@@ -223,7 +285,12 @@ class BleServerTransport(
         runCatching { server?.close() }
         server = null
         mtu = 23
+        originalAdapterName?.let { name ->
+            runCatching { adapter.name = name }
+            originalAdapterName = null
+        }
         _status.value = TransportStatus.Idle
+        logger?.invoke("BLE-Server", "Đã dừng GATT Server và dừng quảng bá BLE")
     }
 
     private fun startAdvertising() {
@@ -235,10 +302,11 @@ class BleServerTransport(
             .setConnectable(true)
             .build()
         val data = AdvertiseData.Builder()
-            .addServiceUuid(ParcelUuid(BleTransport.SERVICE_UUID))
+            .addServiceUuid(ParcelUuid(profile.serviceUuid))
             .setIncludeDeviceName(false)
             .build()
         val scanResponse = AdvertiseData.Builder().setIncludeDeviceName(true).build()
+        logger?.invoke("BLE-Server", "Phát sóng BLE Service: ${profile.serviceUuid} (Tên hiển thị: ${adapter.name})")
         advertiser.startAdvertising(settings, data, scanResponse, advertiseCallback)
     }
 

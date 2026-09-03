@@ -62,6 +62,7 @@ fun ConnectionScreen(
     onStopScan: () -> Unit,
     onConnect: (BluetoothDeviceInfo) -> Unit,
     onListen: (TransportType) -> Unit,
+    onListenVietMap: (TransportType) -> Unit,
     onListenWifi: () -> Unit,
     onDisconnect: () -> Unit,
     onForget: () -> Unit,
@@ -71,6 +72,7 @@ fun ConnectionScreen(
     var pendingScan by remember { mutableStateOf(false) }
     var pendingConnect by remember { mutableStateOf<BluetoothDeviceInfo?>(null) }
     var pendingListen by remember { mutableStateOf<TransportType?>(null) }
+    var pendingListenVietMap by remember { mutableStateOf<TransportType?>(null) }
     var pendingEnableBluetooth by remember { mutableStateOf(false) }
     val enableBluetooth = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) onRefreshPaired()
@@ -82,11 +84,13 @@ fun ConnectionScreen(
             if (pendingScan) onScan()
             pendingConnect?.let(onConnect)
             pendingListen?.let(onListen)
+            pendingListenVietMap?.let(onListenVietMap)
             if (pendingEnableBluetooth) enableBluetooth.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
         }
         pendingScan = false
         pendingConnect = null
         pendingListen = null
+        pendingListenVietMap = null
         pendingEnableBluetooth = false
     }
 
@@ -116,6 +120,17 @@ fun ConnectionScreen(
         }.toTypedArray()
         if (BluetoothPermissionPolicy.has(context, permissions)) onListen(type) else {
             pendingListen = type
+            permissionLauncher.launch(permissions)
+        }
+    }
+
+    fun requestListenVietMap(type: TransportType) {
+        val permissions = buildList {
+            addAll(BluetoothPermissionPolicy.receiverPermissions(type))
+            if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
+        }.toTypedArray()
+        if (BluetoothPermissionPolicy.has(context, permissions)) onListenVietMap(type) else {
+            pendingListenVietMap = type
             permissionLauncher.launch(permissions)
         }
     }
@@ -203,6 +218,49 @@ fun ConnectionScreen(
                     ) {
                         Icon(if (isListeningWifi) Icons.Rounded.Wifi else Icons.Rounded.WifiOff, contentDescription = null)
                         Text(if (isListeningWifi) " Wi-Fi WebSocket đang chạy (Bấm để dừng)" else " Bật Wi-Fi WebSocket Server")
+                    }
+                }
+            }
+        }
+        item {
+            val isListeningVietMap = (connection.phase == ConnectionPhase.CONNECTING ||
+                connection.phase == ConnectionPhase.CONNECTED ||
+                connection.phase == ConnectionPhase.RECONNECTING) &&
+                settings.isReceiverMode && settings.receiverSource == com.chisadin.hudwz.domain.ReceiverSource.VIETMAP_LIVE
+            val activeTransport = connection.transport ?: settings.preferredTransport
+            val isSppActive = isListeningVietMap && activeTransport == TransportType.CLASSIC
+            val isBleActive = isListeningVietMap && activeTransport == TransportType.BLE
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Bộ nhận VietMap Live (HUD H1 Giả lập)", style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        "Giả lập HUD VIETMAP H1N để nhận dữ liệu từ app VietMap Live. Nếu điện thoại đã ghép đôi trong Cài đặt Bluetooth, hãy chọn SPP (Bluetooth Thường - khuyên dùng). Nếu VietMap Live quét tìm thiết bị qua BLE, hãy chọn BLE.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Button(
+                            onClick = { if (isSppActive) onDisconnect() else requestListenVietMap(TransportType.CLASSIC) },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(
+                                if (isSppActive) Icons.Rounded.BluetoothConnected else Icons.Rounded.Bluetooth,
+                                contentDescription = null,
+                            )
+                            Text(if (isSppActive) " SPP đang chạy (Dừng)" else " Chờ qua SPP (Phổ biến)")
+                        }
+                        OutlinedButton(
+                            onClick = { if (isBleActive) onDisconnect() else requestListenVietMap(TransportType.BLE) },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(
+                                if (isBleActive) Icons.Rounded.BluetoothConnected else Icons.Rounded.Bluetooth,
+                                contentDescription = null,
+                            )
+                            Text(if (isBleActive) " BLE đang chạy (Dừng)" else " Chờ qua BLE")
+                        }
                     }
                 }
             }

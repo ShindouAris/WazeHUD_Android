@@ -402,7 +402,13 @@ data class HudSettings(
     val bubbleEnabled: Boolean = false,
     val bubbleLayout: Int = 0,
     val bubbleSize: Int = 100,
+    val receiverSource: ReceiverSource = ReceiverSource.WAZE_MOD,
 )
+
+enum class ReceiverSource {
+    WAZE_MOD,
+    VIETMAP_LIVE,
+}
 
 data class BluetoothDeviceInfo(
     val address: String,
@@ -429,8 +435,11 @@ data class TransportMetrics(
     val lastRssi: Int? = null,
 )
 
+private val diagnosticEventSeq = java.util.concurrent.atomic.AtomicLong(1)
+
 data class DiagnosticEvent(
     val elapsedMs: Long,
     val category: String,
     val message: String,
+    val id: Long = diagnosticEventSeq.getAndIncrement(),
 )

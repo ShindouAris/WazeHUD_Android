@@ -151,6 +151,20 @@ class HudViewModel(application: Application) : AndroidViewModel(application) {
         HudBluetoothService.listenWifi(getApplication())
     }
 
+    fun listenVietMap(type: TransportType = TransportType.CLASSIC) {
+        stopScan()
+        updateSettings {
+            it.copy(
+                isReceiverMode = true,
+                receiverSource = com.chisadin.hudwz.domain.ReceiverSource.VIETMAP_LIVE,
+                preferredDeviceAddress = null,
+                preferredDeviceName = null,
+                preferredTransport = type,
+            )
+        }
+        HudBluetoothService.listenVietMap(getApplication(), type)
+    }
+
     fun disconnect() = HudBluetoothService.disconnect(getApplication())
 
     fun forgetSavedDevice() = updateSettings {

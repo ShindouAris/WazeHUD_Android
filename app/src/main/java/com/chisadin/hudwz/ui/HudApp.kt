@@ -98,6 +98,7 @@ fun HudApp(
                     onStopScan = viewModel::stopScan,
                     onConnect = viewModel::connect,
                     onListen = viewModel::listen,
+                    onListenVietMap = viewModel::listenVietMap,
                     onListenWifi = viewModel::listenWifi,
                     onDisconnect = viewModel::disconnect,
                     onForget = viewModel::forgetSavedDevice,

@@ -25,7 +25,11 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 
 @SuppressLint("MissingPermission")
-class ClassicServerTransport(private val adapter: BluetoothAdapter) : BluetoothTransport {
+class ClassicServerTransport(
+    private val adapter: BluetoothAdapter,
+    private val serviceName: String = "HLP SPP",
+    private val logger: ((category: String, message: String) -> Unit)? = null,
+) : BluetoothTransport {
     override val type = TransportType.CLASSIC
     private val _status = MutableStateFlow<TransportStatus>(TransportStatus.Idle)
     override val status: StateFlow<TransportStatus> = _status.asStateFlow()
@@ -36,13 +40,26 @@ class ClassicServerTransport(private val adapter: BluetoothAdapter) : BluetoothT
     private var serverSocket: BluetoothServerSocket? = null
     private var socket: BluetoothSocket? = null
     private var reader: Job? = null
+    private var originalAdapterName: String? = null
 
     override suspend fun connect(device: BluetoothDeviceInfo, timeoutMillis: Long) {
         disconnect()
         kotlinx.coroutines.delay(250)
         _status.value = TransportStatus.Connecting
-        val listener = adapter.listenUsingRfcommWithServiceRecord("HLP SPP", ClassicTransport.SPP_UUID)
+
+        if (serviceName.contains("VIETMAP", ignoreCase = true)) {
+            val currentName = adapter.name
+            if (!currentName.isNullOrBlank() && !currentName.equals("VIETMAP H1N", ignoreCase = true)) {
+                originalAdapterName = currentName
+                val changed = adapter.setName("VIETMAP H1N")
+                logger?.invoke("SPP-Server", "Đổi tên Bluetooth sang 'VIETMAP H1N' (kết quả: $changed)")
+            }
+        }
+
+        logger?.invoke("SPP-Server", "Đang mở cổng RFCOMM '$serviceName' (UUID ${ClassicTransport.SPP_UUID})...")
+        val listener = adapter.listenUsingRfcommWithServiceRecord(serviceName, ClassicTransport.SPP_UUID)
         serverSocket = listener
+        logger?.invoke("SPP-Server", "Đang chờ thiết bị (Waze Mod hoặc VietMap Live) kết nối...")
         try {
             socket = withTimeout(86_400_000L) {
                 withContext(Dispatchers.IO) { listener.accept() }
@@ -55,6 +72,7 @@ class ClassicServerTransport(private val adapter: BluetoothAdapter) : BluetoothT
             serverSocket = null
         }
         val active = socket ?: throw IllegalStateException("Không nhận được socket SPP")
+        logger?.invoke("SPP-Server", "Đã chấp nhận kết nối SPP từ: ${active.remoteDevice.address} (${active.remoteDevice.name ?: "Unknown"})")
         _status.value = TransportStatus.Connected()
         reader = scope.launch {
             val buffer = ByteArray(1024)
@@ -63,10 +81,16 @@ class ClassicServerTransport(private val adapter: BluetoothAdapter) : BluetoothT
                 while (isActive) {
                     val count = input.read(buffer)
                     if (count < 0) break
-                    if (count > 0) _incoming.emit(buffer.copyOf(count))
+                    if (count > 0) {
+                        val chunk = buffer.copyOf(count)
+                        logger?.invoke("SPP-Server", "RX SPP (${chunk.size}B)")
+                        _incoming.emit(chunk)
+                    }
                 }
-                _status.value = TransportStatus.Disconnected("Waze Mod đã đóng SPP")
+                logger?.invoke("SPP-Server", "Máy khách đã đóng kết nối SPP")
+                _status.value = TransportStatus.Disconnected("Máy khách đã đóng kết nối SPP")
             } catch (error: Throwable) {
+                logger?.invoke("SPP-Server", "Lỗi đọc dữ liệu SPP: ${error.message}")
                 if (isActive) _status.value = TransportStatus.Disconnected(error.message)
             } finally {
                 runCatching { active.close() }
@@ -75,7 +99,7 @@ class ClassicServerTransport(private val adapter: BluetoothAdapter) : BluetoothT
     }
 
     override suspend fun write(bytes: ByteArray) = writeMutex.withLock {
-        val active = socket ?: throw IllegalStateException("Chưa có máy khách Waze Mod SPP kết nối")
+        val active = socket ?: throw IllegalStateException("Chưa có máy khách SPP kết nối")
         withContext(Dispatchers.IO) {
             active.outputStream.write(bytes)
             active.outputStream.flush()
@@ -91,6 +115,11 @@ class ClassicServerTransport(private val adapter: BluetoothAdapter) : BluetoothT
         socket = null
         if (activeReader != null && activeReader != kotlinx.coroutines.currentCoroutineContext()[Job]) {
             activeReader.cancelAndJoin()
+        }
+        originalAdapterName?.let { oldName ->
+            adapter.setName(oldName)
+            logger?.invoke("SPP-Server", "Khôi phục tên Bluetooth: $oldName")
+            originalAdapterName = null
         }
         _status.value = TransportStatus.Idle
     }

@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.chisadin.hudwz.domain.HudOrientation
 import com.chisadin.hudwz.domain.HudSettings
 import com.chisadin.hudwz.domain.HudThemeMode
+import com.chisadin.hudwz.domain.ReceiverSource
 import com.chisadin.hudwz.domain.TransportType
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -42,6 +43,7 @@ class SettingsRepository(private val context: Context) {
                 bubbleEnabled = values[Keys.bubbleEnabled] ?: false,
                 bubbleLayout = values[Keys.bubbleLayout] ?: 0,
                 bubbleSize = (values[Keys.bubbleSize] ?: 100).coerceIn(80, 200),
+                receiverSource = values[Keys.receiverSource].enumOr(ReceiverSource.WAZE_MOD),
             )
         }
 
@@ -70,9 +72,11 @@ class SettingsRepository(private val context: Context) {
                 bubbleEnabled = values[Keys.bubbleEnabled] ?: false,
                 bubbleLayout = values[Keys.bubbleLayout] ?: 0,
                 bubbleSize = values[Keys.bubbleSize] ?: 100,
+                receiverSource = values[Keys.receiverSource].enumOr(ReceiverSource.WAZE_MOD),
             )
             val next = transform(current)
             values[Keys.isReceiverMode] = next.isReceiverMode
+            values[Keys.receiverSource] = next.receiverSource.name
             values[Keys.transport] = next.preferredTransport.name
             values[Keys.autoReconnect] = next.autoReconnect
             next.preferredDeviceAddress?.let { values[Keys.deviceAddress] = it }
@@ -104,6 +108,7 @@ class SettingsRepository(private val context: Context) {
 
     private object Keys {
         val isReceiverMode = booleanPreferencesKey("is_receiver_mode")
+        val receiverSource = stringPreferencesKey("receiver_source")
         val transport = stringPreferencesKey("transport")
         val autoReconnect = booleanPreferencesKey("auto_reconnect")
         val deviceAddress = stringPreferencesKey("device_address")
