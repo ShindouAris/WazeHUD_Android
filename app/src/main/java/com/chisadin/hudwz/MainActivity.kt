@@ -45,6 +45,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         runCatching { HudBluetoothService.restore(this) }
+        runCatching { (application as? HudApplication)?.container?.gpsSpeedTracker?.start() }
     }
 }
 

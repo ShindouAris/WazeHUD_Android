@@ -35,6 +35,7 @@ data class HudAlert(
     val value: Int? = null,
     val severity: Int? = null,
     val delayMinutes: Int? = null,
+    val iconPath: String? = null,
 )
 
 @Serializable

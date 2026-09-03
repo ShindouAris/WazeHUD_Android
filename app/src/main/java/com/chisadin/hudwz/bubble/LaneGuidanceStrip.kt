@@ -56,8 +56,9 @@ class LaneGuidanceStrip @JvmOverloads constructor(
     }
 
     fun setLanes(newVal: List<LaneGuidance>): Boolean {
-        if (newVal == lanes) return false
-        lanes = newVal
+        val filtered = newVal.filter { it.directionsMask != 0 }
+        if (filtered == lanes) return false
+        lanes = filtered
         val hasLanes = lanes.isNotEmpty()
         visibility = if (hasLanes) VISIBLE else GONE
         invalidate()

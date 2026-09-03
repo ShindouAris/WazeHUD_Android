@@ -15,10 +15,35 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
 class HudRepository(
+    private val context: android.content.Context? = null,
     private val codec: HlpFrameCodec = HlpFrameCodec(),
     private val protocol: HlpProtocol = HlpProtocol(),
 ) {
-    private val _hudState = MutableStateFlow(HudState())
+    private val prefs by lazy {
+        context?.getSharedPreferences("hud_state_cache", android.content.Context.MODE_PRIVATE)
+    }
+
+    private fun loadInitialState(): HudState {
+        val sp = prefs ?: return HudState()
+        val cachedTime = sp.getLong("cache_time", 0L)
+        // Nếu cache chưa quá 45 phút, khôi phục tốc độ giới hạn và tên đường
+        if (System.currentTimeMillis() - cachedTime < 45 * 60 * 1000L) {
+            val limit = sp.getInt("speed_limit", -1).takeIf { it in 10..150 }
+            val street = sp.getString("street", null)?.takeIf { it.isNotBlank() }
+            val nextStreet = sp.getString("next_street", null)?.takeIf { it.isNotBlank() }
+            if (limit != null || street != null) {
+                return HudState(
+                    speedLimit = limit,
+                    street = street,
+                    nextStreet = nextStreet,
+                    gpsAvailable = true,
+                )
+            }
+        }
+        return HudState()
+    }
+
+    private val _hudState = MutableStateFlow(loadInitialState())
     val hudState: StateFlow<HudState> = _hudState.asStateFlow()
 
     private val _connection = MutableStateFlow(ConnectionState())
@@ -59,7 +84,8 @@ class HudRepository(
             _metrics.update { it.copy(lastPacketElapsedMs = null, packetRate = 0.0) }
             if (state.phase == ConnectionPhase.CONNECTING || state.phase == ConnectionPhase.RECONNECTING) {
                 sessionId = null
-                _hudState.value = HudState()
+                // Không xoá trắng HudState khi kết nối lại, giữ nguyên giới hạn tốc độ và tên đường
+                _hudState.update { it.copy(connected = false) }
             }
         } else {
             _metrics.update { it.copy(lastPacketElapsedMs = currentElapsedRealtime()) }
@@ -71,8 +97,34 @@ class HudRepository(
     }
 
     fun updateHudState(transform: (HudState) -> HudState) {
-        _hudState.update(transform)
+        _hudState.update { cur ->
+            val updated = transform(cur)
+            if (updated.speedLimit != null || updated.street != null) {
+                runCatching {
+                    prefs?.edit()?.apply {
+                        updated.speedLimit?.let { putInt("speed_limit", it) }
+                        updated.street?.let { putString("street", it) }
+                        updated.nextStreet?.let { putString("next_street", it) }
+                        putLong("cache_time", System.currentTimeMillis())
+                        apply()
+                    }
+                }
+            }
+            updated
+        }
         _metrics.update { it.copy(lastPacketElapsedMs = currentElapsedRealtime()) }
+    }
+
+    fun updateGpsSpeed(speedKmh: Int, bearing: Float?) {
+        _hudState.update { cur ->
+            val overspeed = cur.speedLimit?.let { limit -> speedKmh > limit } ?: false
+            cur.copy(
+                speed = speedKmh,
+                overspeed = overspeed,
+                gpsAvailable = true,
+                bearingDegrees = bearing ?: cur.bearingDegrees,
+            )
+        }
     }
 
     fun accept(bytes: ByteArray): List<ByteArray> {

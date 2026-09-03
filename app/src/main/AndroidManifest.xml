@@ -5,9 +5,8 @@
     <!-- Kept on newer releases as well for Bluetooth stacks on older OEM firmware. -->
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
-    <uses-permission
-        android:name="android.permission.ACCESS_FINE_LOCATION"
-        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <!-- Nearby devices permissions requested at runtime on Android 12+. -->
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
@@ -17,6 +16,7 @@
     <!-- Long-running HLP transport and its user-visible notification. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Floating bubble overlay over other apps. -->
@@ -48,7 +48,7 @@
         <service
             android:name=".service.HudBluetoothService"
             android:exported="false"
-            android:foregroundServiceType="connectedDevice" />
+            android:foregroundServiceType="connectedDevice|location" />
 
         <service
             android:name=".bubble.BubbleKeepAliveService"

@@ -138,6 +138,7 @@ class HudBluetoothService : Service() {
 
     override fun onDestroy() {
         connectionJob?.cancel()
+        (application as? HudApplication)?.container?.gpsSpeedTracker?.stop()
         runCatching {
             transport?.let { t ->
                 kotlinx.coroutines.runBlocking {
@@ -179,6 +180,7 @@ class HudBluetoothService : Service() {
         // already null. Always serialize teardown before registering the replacement server.
         val previousJob = connectionJob
         previousJob?.cancel()
+        (application as? HudApplication)?.container?.gpsSpeedTracker?.start()
         connectionJob = scope.launch {
             previousJob?.join()
             connectionLoop(device)
@@ -187,7 +189,16 @@ class HudBluetoothService : Service() {
     }
 
     private fun promoteToForeground(text: String): Boolean = runCatching {
-        startForeground(NOTIFICATION_ID, notification(text))
+        val hasLocation = ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            var serviceType = android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && hasLocation) {
+                serviceType = serviceType or android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            }
+            startForeground(NOTIFICATION_ID, notification(text), serviceType)
+        } else {
+            startForeground(NOTIFICATION_ID, notification(text))
+        }
         true
     }.getOrElse { error ->
         repository.setConnection(
@@ -498,6 +509,7 @@ class HudBluetoothService : Service() {
 
     private fun disconnectByUser() {
         manuallyStopped = true
+        (application as? HudApplication)?.container?.gpsSpeedTracker?.stop()
         repository.setConnection(ConnectionState(ConnectionPhase.DISCONNECTING, message = "Đang ngắt kết nối"))
         connectionJob?.cancel()
         connectionJob = null

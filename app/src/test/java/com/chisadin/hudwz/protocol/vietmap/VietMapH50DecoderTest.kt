@@ -3,6 +3,7 @@ package com.chisadin.hudwz.protocol.vietmap
 import com.chisadin.hudwz.data.HudRepository
 import com.chisadin.hudwz.domain.TurnType
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -89,8 +90,22 @@ class VietMapH50DecoderTest {
             0, 0, 0,
         )
         val positional = VietMapH50Decoder.parseLaneInfo(withEmptyMiddle)
-        assertEquals(3, positional.lanes.size)
-        assertEquals(0, positional.lanes[1].directionsMask)
+        assertEquals(2, positional.lanes.size)
+        assertEquals(4, positional.lanes[0].directionsMask)
+        assertEquals(32, positional.lanes[1].directionsMask)
+
+        // Real VietMap Live payload: array size 9 with 2 active lanes in the middle
+        val realVietMapPayload = byteArrayOf(
+            1, 9,
+            0, 0, 0,
+            5, 1,
+            0, 0, 0, 0,
+        )
+        val realLanes = VietMapH50Decoder.parseLaneInfo(realVietMapPayload)
+        assertTrue(realLanes.visible)
+        assertEquals(2, realLanes.lanes.size)
+        assertEquals(1, realLanes.lanes[0].directionsMask) // straight
+        assertEquals(4, realLanes.lanes[1].directionsMask) // left
     }
 
     @Test
@@ -125,43 +140,54 @@ class VietMapH50DecoderTest {
         val repo = HudRepository()
         val session = VietMapH50ReceiverSession(repo)
 
-        // 1. Camera phạt nguội (H50 type 0x08) -> Phone Camera (40)
+        // 1. Camera phạt nguội (H50 type 0x08) -> Phone Camera (40) + VML icon
         val alert1 = VietMapH50Decoder.DecodedMessage.UpcomingAlert(alertType = 0x08, distanceM = 300)
         val hudAlert1 = VietMapH50Decoder.mapH50Alert(alert1)
         assertNotNull(hudAlert1)
         assertEquals(40, hudAlert1!!.type)
         assertEquals(300, hudAlert1.distanceMeters)
+        assertEquals("VML_alert/penalty_camera.png", hudAlert1.iconPath)
         assertNull(hudAlert1.value)
 
-        // 2. Railway (H50 type 0x04) -> railroad (11)
+        // 2. Railway (H50 type 0x04) -> railroad (11) + VML icon
         val alert4 = VietMapH50Decoder.DecodedMessage.UpcomingAlert(alertType = 4, distanceM = 200)
         val hudAlert4 = VietMapH50Decoder.mapH50Alert(alert4)
         assertNotNull(hudAlert4)
         assertEquals(11, hudAlert4!!.type)
         assertEquals(200, hudAlert4.distanceMeters)
+        assertEquals("VML_alert/railway.png", hudAlert4.iconPath)
         assertNull(hudAlert4.value)
 
-        // 3. Camera bắn tốc độ (H50 type 0x0A) -> Speed Camera (2)
-        val alert6 = VietMapH50Decoder.DecodedMessage.UpcomingAlert(alertType = 0x0A, distanceM = 450)
+        // 3. Camera bắn tốc độ (H50 type 0x0A) -> Speed Camera (2) + VML icon
+        val alert6 = VietMapH50Decoder.DecodedMessage.UpcomingAlert(alertType = 0x0A, distanceM = 450, speedLimitKmh = 60)
         val hudAlert6 = VietMapH50Decoder.mapH50Alert(alert6)
         assertNotNull(hudAlert6)
         assertEquals(2, hudAlert6!!.type)
         assertEquals(450, hudAlert6.distanceMeters)
-        assertNull(hudAlert6.value)
+        assertEquals(60, hudAlert6.value)
+        assertEquals("VML_alert/speed_limit_camera.png", hudAlert6.iconPath)
 
-        // 4. Trạm thu phí (H50 type 0x01) -> Toll booth (12)
+        // 4. Trạm thu phí (H50 type 0x01) -> Toll booth (12) + VML icon
         val alert10 = VietMapH50Decoder.DecodedMessage.UpcomingAlert(alertType = 0x01, distanceM = 1000)
         val hudAlert10 = VietMapH50Decoder.mapH50Alert(alert10)
         assertNotNull(hudAlert10)
         assertEquals(12, hudAlert10!!.type)
+        assertEquals("VML_alert/toll.png", hudAlert10.iconPath)
 
-        // 5. Cảnh báo lạ chưa rõ -> Fallback Hazard (4)
+        // 5. Đường hầm (H50 type 0x02) -> Tunnel (75) + VML icon
+        val alertTunnel = VietMapH50Decoder.DecodedMessage.UpcomingAlert(alertType = 0x02, distanceM = 500)
+        val hudAlertTunnel = VietMapH50Decoder.mapH50Alert(alertTunnel)
+        assertNotNull(hudAlertTunnel)
+        assertEquals(75, hudAlertTunnel!!.type)
+        assertEquals("VML_alert/tunnel.png", hudAlertTunnel.iconPath)
+
+        // 6. Cảnh báo lạ chưa rõ -> Fallback Hazard (4)
         val alertUnknown = VietMapH50Decoder.DecodedMessage.UpcomingAlert(alertType = 99, distanceM = 150)
         val hudAlertUnknown = VietMapH50Decoder.mapH50Alert(alertUnknown)
         assertNotNull(hudAlertUnknown)
         assertEquals(4, hudAlertUnknown!!.type)
 
-        // 6. Sentinel distance >= 10000 -> null
+        // 7. Sentinel distance >= 10000 -> null
         val alertSentinel = VietMapH50Decoder.DecodedMessage.UpcomingAlert(alertType = 0x08, distanceM = 10000)
         assertNull(VietMapH50Decoder.mapH50Alert(alertSentinel))
 
@@ -169,6 +195,46 @@ class VietMapH50DecoderTest {
         val nextLimitAlert = VietMapH50Decoder.mapH50Alert(nextLimit)
         assertEquals(8, nextLimitAlert?.type)
         assertEquals(70, nextLimitAlert?.value)
+        assertEquals("VML_alert/speed_limit_70.png", nextLimitAlert?.iconPath)
+    }
+
+    @Test
+    fun testEstimatedNavigationWithCalculatedEta() {
+        val repo = HudRepository()
+        val session = VietMapH50ReceiverSession(repo)
+
+        // 599 km, 9 hours, 47 minutes, progress 50%
+        // distance u24 BE = 599000 = 0x0923D8
+        val payload = byteArrayOf(
+            0x09, 0x23, 0xD8.toByte(), // 599,000 meters
+            9, 47, // 9 hours 47 mins
+            50, // progress 50%
+        )
+        val frame = VietMapH50Decoder.buildFrame(VietMapH50Decoder.CMD_EST_NAV_INFO, payload)
+        val decoded = VietMapH50Decoder.parseFrame(frame)
+        assertNotNull(decoded)
+        assertTrue(decoded is VietMapH50Decoder.DecodedMessage.EstimatedNavigation)
+        val estMsg = decoded as VietMapH50Decoder.DecodedMessage.EstimatedNavigation
+        assertEquals(599000L, estMsg.remainingDistanceMeters)
+        assertEquals(9, estMsg.etaHour)
+        assertEquals(47, estMsg.etaMinute)
+        assertEquals(587, estMsg.durationMinutes)
+
+        // Giả lập mốc thời gian 20:00 (8:00 PM) -> 20:00 + 9h47m = 05:47 ngày hôm sau
+        val baseCalendar = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 20)
+            set(java.util.Calendar.MINUTE, 0)
+        }
+        val calculatedEta = estMsg.calculateEtaTime(baseCalendar.timeInMillis)
+        assertEquals("05:47", calculatedEta)
+
+        session.feed(frame)
+        val state = repo.hudState.value
+        assertEquals(587, state.remainingMinutes)
+        assertEquals(599000, state.remainingMeters)
+        assertEquals(599.0, state.remainingKm!!, 0.1)
+        assertNotNull(state.eta)
+        assertTrue(state.eta!!.matches(Regex("\\d{2}:\\d{2}")))
     }
 
     @Test
@@ -227,7 +293,9 @@ class VietMapH50DecoderTest {
         val state = repo.hudState.value
         assertEquals(45.0, state.remainingKm ?: 0.0, 0.1)
         assertEquals(45000, state.remainingMeters)
-        assertEquals("01:38", state.eta)
+        assertEquals(98, state.remainingMinutes)
+        assertNotNull(state.eta)
+        assertTrue(state.eta!!.matches(Regex("\\d{2}:\\d{2}")))
     }
 
     @Test
@@ -337,6 +405,57 @@ class VietMapH50DecoderTest {
         val parsedReply2 = VietMapH50Decoder.parseFrame(decReply2!!)
         assertTrue(parsedReply2 is VietMapH50Decoder.DecodedMessage.SeriResponse)
         assertEquals("CHISADIN-H50-0001", (parsedReply2 as VietMapH50Decoder.DecodedMessage.SeriResponse).seri)
+    }
+
+    @Test
+    fun testNavigationFlushOnLeftTypeAndZeroEstNav() {
+        val repo = HudRepository()
+        val session = VietMapH50ReceiverSession(repo)
+
+        // 1. Gửi NavigationInfo và EstimatedNav đang dẫn đường
+        val nextBytes = "A".toByteArray(Charsets.UTF_8)
+        val navPayload = byteArrayOf(
+            0x25.toByte(), // direction = straight
+            0x00, 0x20, 0x08, // distance = 8200m
+            0x01, // textFlag
+            nextBytes.size.toByte(), // len
+        ) + nextBytes
+        val navFrame = VietMapH50Decoder.buildEncryptedResponse(VietMapH50Decoder.CMD_NAVIGATION_INFO, navPayload)
+        session.feed(navFrame)
+
+        val estPayload = byteArrayOf(0x00, 0x20, 0x08, 0x01, 0x05, 0x20)
+        val estFrame = VietMapH50Decoder.buildEncryptedResponse(VietMapH50Decoder.CMD_EST_NAV_INFO, estPayload)
+        session.feed(estFrame)
+
+        assertTrue(repo.hudState.value.navigating)
+        assertEquals(8200, repo.hudState.value.distanceMeters)
+        assertEquals("A", repo.hudState.value.nextStreet)
+
+        // 2. VietMap gửi LeftType mode=1 (Logo / tắt dẫn đường)
+        val leftTypeFrame = VietMapH50Decoder.buildEncryptedResponse(VietMapH50Decoder.CMD_LEFT_TYPE, byteArrayOf(0x01))
+        session.feed(leftTypeFrame)
+
+        // Chỉ dẫn dẫn đường phải bị xoá sạch!
+        assertFalse(repo.hudState.value.navigating)
+        assertEquals(com.chisadin.hudwz.domain.TurnType.NONE, repo.hudState.value.turn)
+        assertNull(repo.hudState.value.distanceMeters)
+        assertNull(repo.hudState.value.nextStreet)
+        assertNull(repo.hudState.value.remainingKm)
+        assertNull(repo.hudState.value.zoneProgress)
+
+        // 3. Tiếp tục giả lập lại dẫn đường rồi nhận estNav=0
+        session.feed(navFrame)
+        assertTrue(repo.hudState.value.navigating)
+
+        val zeroEstPayload = byteArrayOf(0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
+        val zeroEstFrame = VietMapH50Decoder.buildEncryptedResponse(VietMapH50Decoder.CMD_EST_NAV_INFO, zeroEstPayload)
+        session.feed(zeroEstFrame)
+
+        // Lại phải bị xoá sạch!
+        assertFalse(repo.hudState.value.navigating)
+        assertEquals(com.chisadin.hudwz.domain.TurnType.NONE, repo.hudState.value.turn)
+        assertNull(repo.hudState.value.distanceMeters)
+        assertNull(repo.hudState.value.nextStreet)
     }
 
     private fun hexToBytes(hex: String): ByteArray {

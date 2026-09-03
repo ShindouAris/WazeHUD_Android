@@ -557,25 +557,50 @@ private fun HudWidget(
             HudWidgetType.SPEED_LIMIT_BAR -> SpeedToLimitBar(state.speed ?: 0, state.speedLimit, state.overspeed)
             HudWidgetType.TURN -> ManeuverWidget(state.turn, state.roundaboutExit, config)
             HudWidgetType.NEXT_TURN -> ManeuverWidget(state.nextTurn, null, config)
-            HudWidgetType.DISTANCE -> HudTextWidget(formatDistance(state.distanceMeters), config, globalFontScale, weight, align)
+            HudWidgetType.DISTANCE -> {
+                val distText = if (state.navigating && state.distanceMeters != null) {
+                    formatDistance(state.distanceMeters)
+                } else if (editing) "500 m" else ""
+                HudTextWidget(distText, config, globalFontScale, weight, align)
+            }
             HudWidgetType.STREET -> HudTextWidget(
-                state.street.orEmpty().ifBlank { "Cầu đường chưa đặt tên" },
+                state.street.orEmpty().ifBlank { if (editing) "Tên đường hiện tại" else "" },
                 config,
                 globalFontScale,
                 weight,
                 align,
                 marquee = true,
             )
-            HudWidgetType.NEXT_STREET -> HudTextWidget(
-                state.nextStreet.orEmpty().ifBlank { "Cầu đường chưa đặt tên" },
-                config,
-                globalFontScale,
-                weight,
-                align,
+            HudWidgetType.NEXT_STREET -> {
+                val nextStreetText = if (state.navigating && !state.nextStreet.isNullOrBlank()) {
+                    state.nextStreet
+                } else if (editing) "Đường tiếp theo" else ""
+                HudTextWidget(
+                    nextStreetText,
+                    config,
+                    globalFontScale,
+                    weight,
+                    align,
+                    marquee = true,
+                )
+            }
+            HudWidgetType.ETA -> {
+                val resolvedEta = state.eta?.takeIf { it.isNotBlank() && it != "--:--" }
+                    ?: state.remainingMinutes?.takeIf { it > 0 }?.let { remainingMins ->
+                        val arrivalMillis = System.currentTimeMillis() + remainingMins * 60_000L
+                        val cal = java.util.Calendar.getInstance().apply { timeInMillis = arrivalMillis }
+                        "%02d:%02d".format(cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE))
+                    }
+                HudTextWidget(resolvedEta ?: (if (editing) "09:32" else "--:--"), config, globalFontScale, weight, align)
+            }
+            HudWidgetType.REMAINING -> HudTextWidget(
+                text = remainingText(state).ifBlank { if (editing) "18.5 km  ·  24 phút  ·  Đến lúc 09:32" else "" },
+                config = config,
+                fontScale = globalFontScale,
+                weight = weight,
+                align = align,
                 marquee = true,
             )
-            HudWidgetType.ETA -> HudTextWidget(state.eta?.takeIf { it.isNotBlank() && it != "--:--" } ?: (if (editing) "09:32" else "--:--"), config, globalFontScale, weight, align)
-            HudWidgetType.REMAINING -> HudTextWidget(remainingText(state).ifBlank { if (editing) "18.5 km  ·  24 phút  ·  Đến lúc 09:32" else "" }, config, globalFontScale, weight, align)
             HudWidgetType.GPS -> StatusIcon(state.gpsAvailable, true, config)
             HudWidgetType.CONNECTION -> ConnectivityBatteryWidget(state.connected, config)
             HudWidgetType.ALERTS -> AlertRail(state.alerts, config, editing)
@@ -716,6 +741,9 @@ private fun TripProgressWidget(
     config: HudElementConfig,
     editing: Boolean,
 ) {
+    if (!editing && (!state.navigating || (state.remainingMeters == null && state.remainingKm == null && state.zoneProgress == null))) {
+        return
+    }
     val currentRemaining = state.remainingMeters ?: state.remainingKm?.let { (it * 1000).toInt() } ?: 0
     var maxDistanceMeters by remember(state.sessionId) { mutableIntStateOf(currentRemaining) }
     if (currentRemaining > maxDistanceMeters) {
@@ -723,6 +751,7 @@ private fun TripProgressWidget(
     }
     val progressRatio = when {
         editing -> 0.68f
+        state.zoneProgress != null -> (state.zoneProgress.toFloat() / 100f).coerceIn(0f, 1f)
         maxDistanceMeters > 0 -> (1f - (currentRemaining.toFloat() / maxDistanceMeters.toFloat())).coerceIn(0.05f, 1f)
         state.remainingMinutes != null -> 0.5f
         else -> 0.2f
@@ -1044,6 +1073,7 @@ private fun GeneratedSpeedLimitSign(
 
 @Composable
 private fun ManeuverWidget(turn: TurnType, exit: Int?, config: HudElementConfig) {
+    if (turn == TurnType.NONE) return
     val bitmap = rememberAssetBitmap(turnAsset(turn))
     val numberFont = rememberHudNumberFont()
     BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -1460,11 +1490,12 @@ private fun AlertBadge(alert: HudAlert, iconSize: Float) {
 
 @Composable
 private fun LaneStrip(lanes: List<LaneGuidance>) {
+    val activeLanes = lanes.filter { it.directionsMask != 0 }
     val arrowHead = rememberAssetBitmap("Waze/direction_arrow_head.png")
     Canvas(Modifier.fillMaxSize().padding(4.dp)) {
-        if (lanes.isEmpty()) return@Canvas
-        val laneWidth = size.width / lanes.size
-        lanes.forEachIndexed { index, lane ->
+        if (activeLanes.isEmpty()) return@Canvas
+        val laneWidth = size.width / activeLanes.size
+        activeLanes.forEachIndexed { index, lane ->
             if (index > 0) drawLine(HudMuted.copy(alpha = .35f), Offset(index * laneWidth, size.height * .2f), Offset(index * laneWidth, size.height * .82f), 1.dp.toPx())
             val bits = (0..7).filter { lane.directionsMask and (1 shl it) != 0 }
             bits.forEach { bit ->
@@ -1621,7 +1652,13 @@ private fun remainingText(state: HudState): String {
     val distance = state.remainingMeters?.takeIf { it > 0 }?.let(::formatDistance)
         ?: state.remainingKm?.takeIf { it > 0.0 }?.let { "%.1f km".format(it) }
     val minutes = state.remainingMinutes?.takeIf { it > 0 }?.let { if (it < 60) "$it phút" else "${it / 60} giờ ${it % 60} phút" }
-    val eta = state.eta?.takeIf { it.isNotBlank() && it != "--:--" }?.let { "Đến lúc $it" }
+    val resolvedEta = state.eta?.takeIf { it.isNotBlank() && it != "--:--" }
+        ?: state.remainingMinutes?.takeIf { it > 0 }?.let { remainingMins ->
+            val arrivalMillis = System.currentTimeMillis() + remainingMins * 60_000L
+            val cal = java.util.Calendar.getInstance().apply { timeInMillis = arrivalMillis }
+            "%02d:%02d".format(cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE))
+        }
+    val eta = resolvedEta?.let { "Đến lúc $it" }
     return listOfNotNull(distance, minutes, eta).joinToString("  ·  ").ifBlank { "" }
 }
 
@@ -1726,6 +1763,9 @@ private fun turnAsset(turn: TurnType): String? = when (turn) {
 }
 
 private fun alertAsset(alert: HudAlert): String? {
+    if (!alert.iconPath.isNullOrBlank()) {
+        return alert.iconPath
+    }
     val file = when (alert.type) {
         1 -> "bigpin_police.png"
         2 -> "bigpin_speed_camera.png"
@@ -1785,9 +1825,10 @@ private fun alertAsset(alert: HudAlert): String? {
         63 -> "bigpin_emergency_vehicle.png"
         64 -> "bigpin_personal_safety_a.png"
         70, 71 -> "no_right_and_u_turn.png"
+        75 -> "tunnel.png"
         else -> null
     }
-    return file?.let { "alerts/$it" }
+    return file?.let { if (it.startsWith("VML_alert/") || it.contains("/")) it else "alerts/$it" }
 }
 
 val PreviewHudState = HudState(

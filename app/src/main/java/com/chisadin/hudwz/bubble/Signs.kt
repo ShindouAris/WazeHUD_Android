@@ -37,13 +37,17 @@ object Signs {
     }
 
     fun alert(context: Context, alert: HudAlert): Bitmap? {
+        if (!alert.iconPath.isNullOrBlank()) {
+            val customBm = loadAsset(context, alert.iconPath)
+            if (customBm != null) return customBm
+        }
         // Special speed drop / limit alert
-        if (alert.value != null && alert.value in 10..120) {
+        if (alert.type == 8 && alert.value != null && alert.value in 10..120) {
             val limitBm = limit(context, alert.value)
             if (limitBm != null) return limitBm
         }
         val file = alertFileName(alert.type) ?: return loadAsset(context, "alerts/bigpin_hazard.png")
-        return loadAsset(context, "alerts/$file")
+        return loadAsset(context, if (file.startsWith("VML_alert/") || file.contains("/")) file else "alerts/$file")
     }
 
     fun pin(context: Context, name: String): Bitmap? {
@@ -127,6 +131,7 @@ object Signs {
         63 -> "bigpin_emergency_vehicle.png"
         64 -> "bigpin_personal_safety_a.png"
         70, 71 -> "no_right_and_u_turn.png"
+        75 -> "tunnel.png"
         else -> null
     }
 }

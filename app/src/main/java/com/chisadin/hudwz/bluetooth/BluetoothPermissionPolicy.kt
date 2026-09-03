@@ -20,15 +20,25 @@ object BluetoothPermissionPolicy {
         arrayOf(Manifest.permission.BLUETOOTH_CONNECT)
     } else emptyArray()
 
-    fun receiverPermissions(type: TransportType): Array<String> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        when (type) {
-            TransportType.BLE -> arrayOf(
-                Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_ADVERTISE,
-            )
-            TransportType.WIFI_WEBSOCKET -> emptyArray()
-            else -> arrayOf(Manifest.permission.BLUETOOTH_CONNECT)
+    fun locationPermissions(): Array<String> = arrayOf(
+        Manifest.permission.ACCESS_FINE_LOCATION,
+        Manifest.permission.ACCESS_COARSE_LOCATION,
+    )
+
+    fun receiverPermissions(type: TransportType): Array<String> = buildList {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            when (type) {
+                TransportType.BLE -> {
+                    add(Manifest.permission.BLUETOOTH_CONNECT)
+                    add(Manifest.permission.BLUETOOTH_ADVERTISE)
+                }
+                TransportType.WIFI_WEBSOCKET -> {}
+                else -> add(Manifest.permission.BLUETOOTH_CONNECT)
+            }
         }
-    } else emptyArray()
+        add(Manifest.permission.ACCESS_FINE_LOCATION)
+        add(Manifest.permission.ACCESS_COARSE_LOCATION)
+    }.toTypedArray()
 
     fun notificationPermissions(): Array<String> = if (Build.VERSION.SDK_INT >= 33) {
         arrayOf(Manifest.permission.POST_NOTIFICATIONS)

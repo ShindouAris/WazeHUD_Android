@@ -31,6 +31,7 @@ object VietMapH50Decoder {
     const val CMD_NAVIGATION_INFO = 0x06
     const val CMD_SEND_IMAGE = 0x07
     const val CMD_LEFT_TYPE = 0x08
+    const val CMD_QUERY_OBD_DATA = 0x23
     const val CMD_QUERY_OBD_VERSION = 0x24
     const val CMD_SET_LAYOUT_VALUE = 0x09
     const val CMD_SET_BRIGHTNESS = 0x0A
@@ -42,6 +43,8 @@ object VietMapH50Decoder {
 
     sealed class DecodedMessage {
         data class TimeSync(val timestampSeconds: Long) : DecodedMessage()
+
+        data class LeftType(val mode: Int) : DecodedMessage()
 
         data class SpeedTwo(
             val currentLimitKmh: Int,
@@ -66,7 +69,17 @@ object VietMapH50Decoder {
             val etaHour: Int,
             val etaMinute: Int,
             val progress: Int,
-        ) : DecodedMessage()
+        ) : DecodedMessage() {
+            val durationMinutes: Int get() = etaHour * 60 + etaMinute
+
+            fun calculateEtaTime(currentMillis: Long = System.currentTimeMillis()): String {
+                val totalMins = durationMinutes
+                if (totalMins <= 0) return ""
+                val arrivalMillis = currentMillis + totalMins * 60_000L
+                val cal = java.util.Calendar.getInstance().apply { timeInMillis = arrivalMillis }
+                return "%02d:%02d".format(cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE))
+            }
+        }
 
         data class LaneInfo(
             val visible: Boolean,
@@ -316,6 +329,15 @@ object VietMapH50Decoder {
             CMD_SEND_LANE_INFO -> parseLaneInfo(payload)
             CMD_NAVIGATION_INFO -> parseNavigationInfo(payload)
             CMD_SEND_IMAGE -> parseImageData(payload)
+            CMD_LEFT_TYPE -> {
+                val mode = if (payload.isNotEmpty()) payload[0].toInt() and 0xFF else 0
+                DecodedMessage.LeftType(mode)
+            }
+            CMD_QUERY_OBD_DATA -> if (payload.isEmpty()) {
+                DecodedMessage.QueryCommand(cmd, "queryOBDData", timestamp)
+            } else {
+                DecodedMessage.RawCommand(cmd, payload)
+            }
             CMD_QUERY_VERSION -> if (payload.isNotEmpty()) {
                 DecodedMessage.VersionResponse(String(payload, Charsets.UTF_8))
             } else {
@@ -379,29 +401,43 @@ object VietMapH50Decoder {
     }
 
     /**
-     * Opcode 0x05: [visible, laneCount, 9 centered H50 lane-type slots].
+     * Opcode 0x05: [visible, slotCapacity (9), 9 centered H50 lane-type slots].
      */
     fun parseLaneInfo(payload: ByteArray): DecodedMessage.LaneInfo {
         if (payload.size < 11) return DecodedMessage.LaneInfo(false, emptyList())
 
         val visible = payload[0].toInt() != 0
-        val laneCount = (payload[1].toInt() and 0xFF).coerceIn(0, 9)
-        if (!visible || laneCount == 0) return DecodedMessage.LaneInfo(false, emptyList())
+        if (!visible) return DecodedMessage.LaneInfo(false, emptyList())
 
+        val rawLaneCount = payload[1].toInt() and 0xFF
         val slots = payload.copyOfRange(2, 11)
-        val firstLane = (9 - laneCount) / 2
-        val lanes = (0 until laneCount).map { laneIndex ->
-            val raw = slots[firstLane + laneIndex].toInt() and 0xFF
-            val (dirMask, _) = mapSingleLaneByte(raw)
-            // H50 has no separate recommended-direction mask. Every emitted direction is drawn
-            // with the active style, while zero slots are retained to preserve lane position.
-            LaneGuidance(
-                directionsMask = dirMask,
-                selectedMask = dirMask,
-            )
+
+        // H50 gửi mảng 9 slots cố định căn giữa (đệm 0 ở hai đầu cho phần cứng LED 9 vị trí của HUD H50).
+        // VietMap Live thực tế luôn gửi payload[1] = 9 (kích thước mảng).
+        // Ta trích xuất các làn thực tế dựa trên vùng slots khác 0 hoặc rawLaneCount (nếu 1..8).
+        val rawLanes = if (rawLaneCount in 1..8) {
+            val firstLane = (9 - rawLaneCount) / 2
+            (0 until rawLaneCount).map { slots[firstLane + it].toInt() and 0xFF }
+        } else {
+            val firstIndex = slots.indexOfFirst { it.toInt() != 0 }
+            val lastIndex = slots.indexOfLast { it.toInt() != 0 }
+            if (firstIndex == -1 || lastIndex == -1) {
+                return DecodedMessage.LaneInfo(false, emptyList())
+            }
+            slots.slice(firstIndex..lastIndex).map { it.toInt() and 0xFF }
         }
 
-        return DecodedMessage.LaneInfo(visible, lanes)
+        val lanes = rawLanes.mapNotNull { raw ->
+            val (dirMask, _) = mapSingleLaneByte(raw)
+            if (dirMask != 0) {
+                LaneGuidance(
+                    directionsMask = dirMask,
+                    selectedMask = dirMask,
+                )
+            } else null
+        }
+
+        return DecodedMessage.LaneInfo(visible && lanes.isNotEmpty(), lanes)
     }
 
     /**
@@ -495,31 +531,43 @@ object VietMapH50Decoder {
         if (item.alertType == 0 || item.distanceM >= 10000 || item.distanceM == 0x86A0) {
             return null
         }
-        val mappedType = when (item.alertType) {
-            0x01, 0x03 -> 12 // Toll / ETC
-            0x02 -> 6        // Tunnel; generic hazard until a tunnel asset type exists
-            0x04 -> 11       // Railway
-            0x05 -> 23       // Enter residential area
-            0x06 -> 24       // Leave residential area
-            0x07 -> 20       // National rest area
-            0x08 -> 40       // Penalty camera
-            0x09 -> 4        // Traffic camera
-            0x0A, 0x0D -> 2  // Speed camera / speed checkpoint
-            0x0B -> 9        // Start no-passing
-            0x0C -> 10       // End no-passing
-            0x0E -> 17       // Stop lane / blocked lane
-            0xF0 -> 8        // Generated next-speed-limit sign; value carries the new limit
+        val (mappedType, vmlIcon) = when (item.alertType) {
+            0x01 -> Pair(12, "VML_alert/toll.png")
+            0x02 -> Pair(75, "VML_alert/tunnel.png")
+            0x03 -> Pair(12, "VML_alert/toll_etc.png")
+            0x04 -> Pair(11, "VML_alert/railway.png")
+            0x05 -> Pair(23, "VML_alert/residential_area_in.png")
+            0x06 -> Pair(24, "VML_alert/residential_area_out.png")
+            0x07 -> Pair(20, "VML_alert/highway_rest_area.png")
+            0x08 -> Pair(40, "VML_alert/penalty_camera.png")
+            0x09 -> Pair(4,  "VML_alert/traffic_camera.png")
+            0x0A -> Pair(2,  "VML_alert/speed_limit_camera.png")
+            0x0B -> Pair(9,  "VML_alert/no_passing_in.png")
+            0x0C -> Pair(10, "VML_alert/no_passing_out.png")
+            0x0D -> Pair(2,  "VML_alert/speed_limit_camera.png")
+            0x0E -> Pair(17, "VML_alert/stop_lane.png")
+            0xF0 -> {
+                val lim = item.speedLimitKmh
+                val icon = if (lim in 10..120 && lim % 10 == 0) "VML_alert/speed_limit_$lim.png" else null
+                Pair(8, icon)
+            }
             else -> {
                 try {
                     Log.w("WazeHudReceiver", "H50: Cảnh báo chưa được ánh xạ: type=${item.alertType}, dist=${item.distanceM}m")
                 } catch (_: Throwable) {}
-                4 // Fallback -> bigpin_hazard.png
+                Pair(4, null) // Fallback -> bigpin_hazard.png
             }
+        }
+        val alertValue = if (item.alertType == 0xF0 || item.alertType == 0x0A || item.alertType == 0x0D) {
+            item.speedLimitKmh.takeIf { it in 10..150 }
+        } else {
+            null
         }
         return HudAlert(
             type = mappedType,
             distanceMeters = item.distanceM,
-            value = item.speedLimitKmh.takeIf { item.alertType == 0xF0 && it in 10..150 },
+            value = alertValue,
+            iconPath = vmlIcon,
         )
     }
 

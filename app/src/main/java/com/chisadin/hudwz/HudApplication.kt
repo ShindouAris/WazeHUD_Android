@@ -36,5 +36,6 @@ class AppContainer(application: Application) {
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val settingsRepository = SettingsRepository(application)
     val profileRepository = ProfileRepository(application)
-    val hudRepository = HudRepository()
+    val hudRepository = HudRepository(application)
+    val gpsSpeedTracker = com.chisadin.hudwz.location.GpsSpeedTracker(application, hudRepository)
 }
