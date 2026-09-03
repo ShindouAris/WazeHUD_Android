@@ -39,6 +39,9 @@ class SettingsRepository(private val context: Context) {
                 protocolLogs = values[Keys.protocolLogs] ?: false,
                 wsPort = (values[Keys.wsPort] ?: 8765).coerceIn(1024, 65535),
                 wsPath = values[Keys.wsPath] ?: "/hlp",
+                bubbleEnabled = values[Keys.bubbleEnabled] ?: false,
+                bubbleLayout = values[Keys.bubbleLayout] ?: 0,
+                bubbleSize = (values[Keys.bubbleSize] ?: 100).coerceIn(80, 200),
             )
         }
 
@@ -64,6 +67,9 @@ class SettingsRepository(private val context: Context) {
                 protocolLogs = values[Keys.protocolLogs] ?: false,
                 wsPort = values[Keys.wsPort] ?: 8765,
                 wsPath = values[Keys.wsPath] ?: "/hlp",
+                bubbleEnabled = values[Keys.bubbleEnabled] ?: false,
+                bubbleLayout = values[Keys.bubbleLayout] ?: 0,
+                bubbleSize = values[Keys.bubbleSize] ?: 100,
             )
             val next = transform(current)
             values[Keys.isReceiverMode] = next.isReceiverMode
@@ -87,6 +93,9 @@ class SettingsRepository(private val context: Context) {
             values[Keys.protocolLogs] = next.protocolLogs
             values[Keys.wsPort] = next.wsPort.coerceIn(1024, 65535)
             values[Keys.wsPath] = next.wsPath.ifBlank { "/hlp" }
+            values[Keys.bubbleEnabled] = next.bubbleEnabled
+            values[Keys.bubbleLayout] = next.bubbleLayout
+            values[Keys.bubbleSize] = next.bubbleSize.coerceIn(80, 200)
         }
     }
 
@@ -113,5 +122,8 @@ class SettingsRepository(private val context: Context) {
         val protocolLogs = booleanPreferencesKey("protocol_logs")
         val wsPort = intPreferencesKey("ws_port")
         val wsPath = stringPreferencesKey("ws_path")
+        val bubbleEnabled = booleanPreferencesKey("bubble_enabled")
+        val bubbleLayout = intPreferencesKey("bubble_layout")
+        val bubbleSize = intPreferencesKey("bubble_size")
     }
 }

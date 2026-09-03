@@ -14,6 +14,23 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
+import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import com.chisadin.hudwz.bubble.Bubble
+import com.chisadin.hudwz.bubble.Signs
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -49,6 +66,34 @@ fun SettingsScreen(settings: HudSettings, onChange: (HudSettings) -> Unit) {
             Toggle("Luôn bật màn hình", settings.keepScreenAwake) { onChange(settings.copy(keepScreenAwake = it)) }
             Toggle("Toàn màn hình", settings.immersiveMode) { onChange(settings.copy(immersiveMode = it)) }
             Toggle("Ngăn chạm nhầm", settings.preventAccidentalTouches) { onChange(settings.copy(preventAccidentalTouches = it)) }
+        }
+        SettingsSection("Bong bóng nổi") {
+            val context = LocalContext.current
+            Toggle("Bong bóng nổi trên app khác (tốc độ + cảnh báo)", settings.bubbleEnabled) { enabled ->
+                if (enabled && !Bubble.canShow(context)) {
+                    Bubble.requestPermission(context)
+                    Toast.makeText(
+                        context,
+                        "Vui lòng cấp quyền 'Hiển thị trên các ứng dụng khác' cho Waze HUD",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+                onChange(settings.copy(bubbleEnabled = enabled))
+            }
+            if (settings.bubbleEnabled) {
+                BubbleLayoutPicker(
+                    selectedLayout = settings.bubbleLayout,
+                    onSelect = { onChange(settings.copy(bubbleLayout = it)) },
+                )
+                LabeledSlider(
+                    "Cỡ bong bóng",
+                    settings.bubbleSize.toFloat(),
+                    80f..200f,
+                    "${settings.bubbleSize}%",
+                ) {
+                    onChange(settings.copy(bubbleSize = it.toInt()))
+                }
+            }
         }
         SettingsSection("Giao diện") {
             ChoiceRow("Chủ đề", HudThemeMode.entries, settings.themeMode) { onChange(settings.copy(themeMode = it)) }
@@ -123,3 +168,92 @@ private fun enumLabel(value: Enum<*>): String = when (value) {
     HudThemeMode.NIGHT -> "Ban đêm"
     else -> value.name
 }
+
+private data class BubbleLayoutOption(
+    val id: Int,
+    val title: String,
+    val assetPath: String,
+)
+
+@Composable
+private fun BubbleLayoutPicker(
+    selectedLayout: Int,
+    onSelect: (Int) -> Unit,
+) {
+    val options = remember {
+        listOf(
+            BubbleLayoutOption(2, "Cơ bản", "settings_demo/bubble_bs.png"),
+            BubbleLayoutOption(0, "Nằm ngang", "settings_demo/bubble_h.png"),
+            BubbleLayoutOption(1, "Nằm dọc", "settings_demo/bubble_v.png"),
+        )
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Kiểu hiển thị bong bóng", style = MaterialTheme.typography.titleMedium)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            options.forEach { option ->
+                val selected = option.id == selectedLayout
+                val bitmap = rememberAssetBitmap(option.assetPath)
+                Card(
+                    onClick = { onSelect(option.id) },
+                    modifier = Modifier
+                        .width(170.dp)
+                        .height(130.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(
+                        width = if (selected) 2.dp else 1.dp,
+                        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                    ),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                    ),
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (bitmap != null) {
+                                Image(
+                                    bitmap = bitmap,
+                                    contentDescription = option.title,
+                                    contentScale = ContentScale.Fit,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                        }
+                        Text(
+                            text = option.title,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun rememberAssetBitmap(path: String): ImageBitmap? {
+    val context = LocalContext.current
+    return remember(path) {
+        Signs.loadAsset(context, path)?.asImageBitmap()
+    }
+}
+

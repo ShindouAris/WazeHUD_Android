@@ -399,6 +399,9 @@ data class HudSettings(
     val protocolLogs: Boolean = false,
     val wsPort: Int = 8765,
     val wsPath: String = "/hlp",
+    val bubbleEnabled: Boolean = false,
+    val bubbleLayout: Int = 0,
+    val bubbleSize: Int = 100,
 )
 
 data class BluetoothDeviceInfo(

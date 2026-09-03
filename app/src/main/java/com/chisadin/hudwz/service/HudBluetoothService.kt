@@ -499,20 +499,26 @@ class HudBluetoothService : Service() {
                 .putExtra(EXTRA_NAME, device.name)
                 .putExtra(EXTRA_TRANSPORT, device.transport.name)
                 .putExtra(EXTRA_BONDED, device.bonded)
-            ContextCompat.startForegroundService(context, intent)
+            runCatching {
+                ContextCompat.startForegroundService(context, intent)
+            }
         }
 
         fun listen(context: Context, type: TransportType) {
             val intent = Intent(context, HudBluetoothService::class.java)
                 .setAction(ACTION_LISTEN)
                 .putExtra(EXTRA_TRANSPORT, type.name)
-            ContextCompat.startForegroundService(context, intent)
+            runCatching {
+                ContextCompat.startForegroundService(context, intent)
+            }
         }
 
         fun listenWifi(context: Context) {
             val intent = Intent(context, HudBluetoothService::class.java)
                 .setAction(ACTION_WIFI_LISTEN)
-            ContextCompat.startForegroundService(context, intent)
+            runCatching {
+                ContextCompat.startForegroundService(context, intent)
+            }
         }
 
         fun disconnect(context: Context) {
