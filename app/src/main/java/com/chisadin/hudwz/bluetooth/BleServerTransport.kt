@@ -85,10 +85,13 @@ class BleServerTransport(
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     remote = device
-                    logger?.invoke("BLE-Server", "Thiết bị đã kết nối tầng Bluetooth: ${device.address} (${device.name ?: "Unknown"})")
+                    runCatching { adapter.bluetoothLeAdvertiser?.stopAdvertising(advertiseCallback) }
+                    logger?.invoke("BLE-Server", "Thiết bị đã kết nối tầng Bluetooth: ${device.address} (${device.name ?: "Unknown"}), đang chờ khám phá GATT...")
                     if (status != BluetoothGatt.GATT_SUCCESS) {
                         logger?.invoke("BLE-Server", "Lỗi kết nối GATT status: $status")
                         fail("Lỗi kết nối thiết bị ngoại vi BLE: $status")
+                    } else {
+                        _status.value = TransportStatus.Connecting
                     }
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
@@ -100,7 +103,9 @@ class BleServerTransport(
                         }
                     }
                     runCatching { server?.cancelConnection(device) }
-                    startAdvertising()
+                    // The service's reconnect loop closes this GATT server and creates the next
+                    // one. Restarting advertising here races that close and can publish a stale
+                    // FFFF database backed by a null framework callback.
                 }
             }
         }
@@ -147,11 +152,14 @@ class BleServerTransport(
             characteristic: BluetoothGattCharacteristic,
         ) {
             remote = device
-            logger?.invoke("BLE-Server", "Client yêu cầu đọc ${characteristic.uuid} từ ${device.address}")
             if (characteristic.uuid == profile.notifyUuid && profile == GattProfile.VIETMAP_H1) {
                 val value = com.chisadin.hudwz.protocol.vietmap.VietMapH1ReceiverSession.buildDeviceInfoFrame()
                 val chunk = if (offset < value.size) value.copyOfRange(offset, value.size) else byteArrayOf()
                 server?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, chunk)
+            } else if (characteristic.uuid == profile.notifyUuid && profile == GattProfile.VIETMAP_H50) {
+                // The validated H50 peripheral exposes 1234 as readable but has no unsolicited
+                // plaintext value. Protocol replies are encrypted notifications after CCCD setup.
+                server?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, byteArrayOf())
             } else {
                 @Suppress("DEPRECATION")
                 val curVal = characteristic.value ?: byteArrayOf()
@@ -173,7 +181,19 @@ class BleServerTransport(
             val accepted = characteristic.uuid == profile.writeUuid && !preparedWrite && offset == 0
             val hex = bytesToHex(value)
             logger?.invoke("BLE-Server", "Client ghi ${characteristic.uuid} (${value.size}B): $hex")
-            if (accepted) _incoming.tryEmit(value.copyOf())
+            if (accepted) {
+                // Some VML/Android combinations reconnect through a cached GATT database and do
+                // not issue a fresh CCCD callback, yet immediately send valid encrypted H50 data
+                // to 9ABC. A write to the protocol's exact characteristic proves the peer has
+                // completed discovery; otherwise connect() remains in Connecting until its timeout
+                // and tears down a healthy stream. CCCD remains the preferred readiness signal.
+                if (!ready.isCompleted) {
+                    logger?.invoke("BLE-Server", "Không thấy CCCD mới; xác nhận phiên sẵn sàng từ lần ghi đầu tiên vào ${profile.writeUuid}")
+                    _status.value = TransportStatus.Connected(mtu)
+                    ready.complete(Unit)
+                }
+                _incoming.tryEmit(value.copyOf())
+            }
             if (responseNeeded) {
                 server?.sendResponse(
                     device,
@@ -197,6 +217,11 @@ class BleServerTransport(
         }
         ready = CompletableDeferred()
         _status.value = TransportStatus.Connecting
+        if (profile == GattProfile.VIETMAP_H1 || profile == GattProfile.VIETMAP_H50) {
+            originalAdapterName = adapter.name
+            runCatching { adapter.name = profile.advertisedName }
+            logger?.invoke("BLE-Server", "Đổi tên Bluetooth sang '${profile.advertisedName}' (gốc: '$originalAdapterName')")
+        }
         val activeServer = manager.openGattServer(context, callback)
             ?: throw IllegalStateException("Không thể mở máy chủ BLE GATT")
         server = activeServer
@@ -206,7 +231,7 @@ class BleServerTransport(
             BluetoothGattCharacteristic.PROPERTY_WRITE or BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE,
             BluetoothGattCharacteristic.PERMISSION_WRITE,
         )
-        val rxProperties = if (profile == GattProfile.VIETMAP_H1) {
+        val rxProperties = if (profile == GattProfile.VIETMAP_H1 || profile == GattProfile.VIETMAP_H50) {
             BluetoothGattCharacteristic.PROPERTY_NOTIFY or BluetoothGattCharacteristic.PROPERTY_READ
         } else {
             BluetoothGattCharacteristic.PROPERTY_NOTIFY
@@ -223,20 +248,23 @@ class BleServerTransport(
                 ),
             )
         }
-        service.addCharacteristic(tx)
-        service.addCharacteristic(rx)
+        // VML 3.3.0 stops enumerating the FFFF service when it reaches 9ABC. The validated
+        // peripheral therefore exposes notify 1234 before write 9ABC, otherwise VML never
+        // subscribes and cannot receive the encrypted handshake response.
+        if (profile == GattProfile.VIETMAP_H50) {
+            service.addCharacteristic(rx)
+            service.addCharacteristic(tx)
+        } else {
+            service.addCharacteristic(tx)
+            service.addCharacteristic(rx)
+        }
         if (!activeServer.addService(service)) {
             disconnect()
             throw IllegalStateException("Không thể thêm dịch vụ GATT: ${profile.id}")
         }
-        if (profile == GattProfile.VIETMAP_H1) {
-            originalAdapterName = adapter.name
-            runCatching { adapter.name = profile.advertisedName }
-            logger?.invoke("BLE-Server", "Đổi tên Bluetooth sang '${profile.advertisedName}' (gốc: '$originalAdapterName')")
-        }
         logger?.invoke("BLE-Server", "Máy chủ GATT đã mở, đang chờ client kết nối...")
         try {
-            ready.await()
+            withTimeout(timeoutMillis) { ready.await() }
             logger?.invoke("BLE-Server", "Client đã bật CCCD, phiên BLE sẵn sàng trao đổi dữ liệu!")
         } catch (error: Throwable) {
             disconnect()
@@ -303,6 +331,8 @@ class BleServerTransport(
             .build()
         val data = AdvertiseData.Builder()
             .addServiceUuid(ParcelUuid(profile.serviceUuid))
+            // A 128-bit service UUID plus the H50 name does not fit in the 31-byte primary
+            // advertising packet on legacy controllers. Put the name in scan response only.
             .setIncludeDeviceName(false)
             .build()
         val scanResponse = AdvertiseData.Builder().setIncludeDeviceName(true).build()

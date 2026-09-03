@@ -34,5 +34,15 @@ data class GattProfile(
             advertisedName = "VIETMAP_HUD_WZ",
             id = "vietmap_hud_h1",
         )
+
+        val VIETMAP_H50 = GattProfile(
+            serviceUuid = UUID.fromString("0000ffff-0000-1000-8000-00805f9b34fb"),
+            writeUuid = UUID.fromString("00009abc-0000-1000-8000-00805f9b34fb"),
+            notifyUuid = UUID.fromString("00001234-0000-1000-8000-00805f9b34fb"),
+            cccdUuid = CCCD_UUID,
+            requestedMtu = 517,
+            advertisedName = "vietmap_h50",
+            id = "vietmap_hud_h50",
+        )
     }
 }

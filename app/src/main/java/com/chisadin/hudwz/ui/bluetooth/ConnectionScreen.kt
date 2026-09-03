@@ -232,9 +232,9 @@ fun ConnectionScreen(
             val isBleActive = isListeningVietMap && activeTransport == TransportType.BLE
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Bộ nhận VietMap Live (HUD H1 Giả lập)", style = MaterialTheme.typography.titleLarge)
+                    Text("Bộ nhận VietMap Live (HUD H50)", style = MaterialTheme.typography.titleLarge)
                     Text(
-                        "Giả lập HUD VIETMAP H1N để nhận dữ liệu từ app VietMap Live. Nếu điện thoại đã ghép đôi trong Cài đặt Bluetooth, hãy chọn SPP (Bluetooth Thường - khuyên dùng). Nếu VietMap Live quét tìm thiết bị qua BLE, hãy chọn BLE.",
+                        "Nhận dữ liệu từ VietMap Live theo chuẩn HUD H50 Full-Color (hỗ trợ hiển thị Làn đường, Mũi tên dẫn đường, Tên đường đầy đủ, Cảnh báo & Tốc độ). Khuyên dùng chế độ BLE để VietMap Live tự động quét và kết nối.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Row(
@@ -242,16 +242,6 @@ fun ConnectionScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Button(
-                            onClick = { if (isSppActive) onDisconnect() else requestListenVietMap(TransportType.CLASSIC) },
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Icon(
-                                if (isSppActive) Icons.Rounded.BluetoothConnected else Icons.Rounded.Bluetooth,
-                                contentDescription = null,
-                            )
-                            Text(if (isSppActive) " SPP đang chạy (Dừng)" else " Chờ qua SPP (Phổ biến)")
-                        }
-                        OutlinedButton(
                             onClick = { if (isBleActive) onDisconnect() else requestListenVietMap(TransportType.BLE) },
                             modifier = Modifier.weight(1f),
                         ) {
@@ -259,7 +249,17 @@ fun ConnectionScreen(
                                 if (isBleActive) Icons.Rounded.BluetoothConnected else Icons.Rounded.Bluetooth,
                                 contentDescription = null,
                             )
-                            Text(if (isBleActive) " BLE đang chạy (Dừng)" else " Chờ qua BLE")
+                            Text(if (isBleActive) " BLE H50 (Dừng)" else " Chờ qua BLE H50")
+                        }
+                        OutlinedButton(
+                            onClick = { if (isSppActive) onDisconnect() else requestListenVietMap(TransportType.CLASSIC) },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(
+                                if (isSppActive) Icons.Rounded.BluetoothConnected else Icons.Rounded.Bluetooth,
+                                contentDescription = null,
+                            )
+                            Text(if (isSppActive) " SPP (Dừng)" else " Chờ qua SPP")
                         }
                     }
                 }

@@ -151,7 +151,7 @@ class HudViewModel(application: Application) : AndroidViewModel(application) {
         HudBluetoothService.listenWifi(getApplication())
     }
 
-    fun listenVietMap(type: TransportType = TransportType.CLASSIC) {
+    fun listenVietMap(type: TransportType = TransportType.BLE) {
         stopScan()
         updateSettings {
             it.copy(
